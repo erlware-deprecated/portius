@@ -20,8 +20,10 @@
 -export([
 	 create_tree/1,
 	 find_additions/2,
-	 return_file_paths/1
+	 file_paths/1
 	]).
+
+-include("eunit.hrl").
 
 %%====================================================================
 %% API
@@ -49,14 +51,14 @@ create_tree(FromDirPath) ->
 
 %%--------------------------------------------------------------------
 %% @doc Return a tree containing what is present in tree2 that is not present in tree1.
-%% @spec find_additions(Tree::tree(), Tree2::tree()) -> Tree
+%% @spec find_additions(Tree::tree(), Tree2::tree()) -> Tree | []
 %% @end
 %%--------------------------------------------------------------------
 find_additions(Tree, Tree) ->
-    {};
+    [];
 find_additions({dir, DirName, List}, {dir, DirName, List2}) ->
     case diff_subdirs(List, List2) of
-	[]         -> {};
+	[]         -> [];
 	SubDirDiff -> {dir, DirName, SubDirDiff}
     end;
 find_additions(_Tree, Tree2) ->
@@ -70,10 +72,7 @@ diff_subdirs(_List, []) ->
 diff_subdirs2([Tree|_], Tree) ->
     [];
 diff_subdirs2([{dir, Name, _} = Tree2|_], {dir, Name, _} = Tree) ->
-    case find_additions(Tree2, Tree) of
-	{}   -> [];
-	Diff -> Diff
-    end;
+    find_additions(Tree2, Tree);
 diff_subdirs2([_|T], Tree) ->
     diff_subdirs2(T, Tree);
 diff_subdirs2([], Tree) ->
@@ -81,16 +80,59 @@ diff_subdirs2([], Tree) ->
 	
 %%--------------------------------------------------------------------
 %% @doc Return a list of the files that are present in the tree.
-%% @spec return_file_paths(Tree::tree()) -> [string()]
+%% @spec file_paths(Tree::tree()) -> [string()]
 %% @end
 %%--------------------------------------------------------------------
-return_file_paths({file, FileName}) ->
+file_paths({file, FileName}) ->
     [FileName];
-return_file_paths({dir, DirName, SubDirs}) ->
+file_paths({dir, DirName, SubDirs}) ->
     lists:foldl(fun(SubDir, Acc) -> 
-			[lists:flatten([DirName, "/", Path]) || Path <-  return_file_paths(SubDir)] ++ Acc
+			[lists:flatten([DirName, "/", Path]) || Path <-  file_paths(SubDir)] ++ Acc
 		end, [], SubDirs).
     
 %%====================================================================
 %% Internal functions
 %%====================================================================
+
+find_additions_test() ->
+    TreeA = 
+	{dir,"test_dir",
+	 [{dir,"path_b",
+           [{file,"file_b3"},
+            {file,"file_b2"},
+            {file,"file_b"},
+            {dir,"dir_b1",[{file,"file_b1-1"}]}]},
+	  {dir,"path_a",[{dir,"path_a1",[{file,"file_a1"}]}]}]},
+
+    TreeB = 
+	{dir,"test_dir",
+	 [
+	  {dir,"path_c", [{file,"file_c"}]},
+	  {dir,"path_b",
+           [{file,"file_b4"},
+            {file,"file_b3"},
+            {file,"file_b2"},
+            {file,"file_b"},
+            {dir,"dir_b1",[{file,"file_b1-1"}]}]},
+	  {dir,"path_a",[{dir,"path_a1",[{file,"file_a1"}]}]}]},
+
+    Result = {dir,"test_dir",
+	      [
+	       {dir,"path_c", [{file,"file_c"}]},
+	       {dir,"path_b", [{file,"file_b4"}]}
+	      ]
+	     },
+    
+    ?assertMatch(Result, find_additions(TreeA, TreeB)).
+
+file_paths_test() ->
+    DiffTree = {dir,"test_dir",
+		[
+		 {dir,"path_c", [{file,"file_c"}]},
+		 {dir,"path_b", [{file,"file_b4"}]}
+		]
+	       },
+
+    Result = ["test_dir/path_b/file_b4","test_dir/path_c/file_c"],
+
+    ?assertMatch(Result, file_paths(DiffTree)).

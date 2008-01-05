@@ -2,7 +2,7 @@
 {application, portius,
  [
   % A quick description of the application.
-  {description, "Subscribe to and convert rss streams to emails."},
+  {description, "Manage the erlware repos"},
 
   % The version of the applicaton
   {vsn, "0.1.0.0"},
