@@ -34,7 +34,7 @@
 %% @end
 %%--------------------------------------------------------------------
 start_link(FromRepoDirPath, ToRepoDirPath) ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], [FromRepoDirPath, ToRepoDirPath]).
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [FromRepoDirPath, ToRepoDirPath], []).
 
 %%====================================================================
 %% gen_server callbacks
@@ -53,7 +53,9 @@ start_link(FromRepoDirPath, ToRepoDirPath) ->
 %%--------------------------------------------------------------------
 init([FromRepoDirPath, ToRepoDirPath]) ->
     {ok, Timeout} = gas:get_env(portius, inspection_frequency),
-    {ok, #state{from_repo = FromRepoDirPath, to_repo = ToRepoDirPath, inspection_frequency = Timeout}, Timeout}.
+    ToTree        = por_file_tree:create_tree(ToRepoDirPath),
+    {ok, #state{from_repo = FromRepoDirPath, to_repo = ToRepoDirPath, inspection_frequency = Timeout, last_tree = ToTree}, 
+     Timeout}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -99,11 +101,10 @@ handle_cast(_Msg, State) ->
 handle_info(_Info, #state{from_repo = FR, to_repo = TR, inspection_frequency = CF, last_tree = PT} = State) ->
     Tree     = por_file_tree:create_tree(FR),
     TreeDiff = por_file_tree:find_additions(PT, Tree),
-    NewFiles = por_file_tree:return_file_paths(TreeDiff),
-
-    ?INFO_MSG("tree diff ~p~nnew files ~p~ngoing to ~s~n", [TreeDiff, NewFiles, TR]),
-
+    ?INFO_MSG("tree diff ~p~ngoing to ~s~n", [TreeDiff, TR]),
+    handle_transitions(TreeDiff, FR, TR),
     {noreply, State#state{last_tree = Tree}, CF}.
+
 
 %%--------------------------------------------------------------------
 %% @private
@@ -133,3 +134,66 @@ code_change(_OldVsn, State, _Extra) ->
 %%====================================================================
 %% Internal functions
 %%====================================================================
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc handle the transitions of all packages from one repo to another
+%% @end
+%%--------------------------------------------------------------------
+handle_transitions([], _FromRepo, _ToRepo) ->
+    ok;
+handle_transitions(TreeDiff, FromRepo, ToRepo) ->
+    NewFiles = lists:map(fun(Path) -> 
+				 {ok, {_, Rest}} = fs_lists:separate_by_token(Path, "/"),
+				 Rest
+			 end, por_file_tree:file_paths(TreeDiff)),
+    lists:foreach(fun(FilePath) ->
+			  case regexp:match(FilePath, ".*Meta.*") of
+			      {match, _, _} -> ok;
+			      _             -> handle_transition(FilePath, FromRepo, ToRepo)
+			  end
+		  end, NewFiles).
+ 				  
+%%--------------------------------------------------------------------
+%% @private
+%% @doc handle the transition of a package from one repo to another
+%% @end
+%%--------------------------------------------------------------------
+handle_transition(PackageFileSuffix, FromRepo, ToRepo) ->
+    PackageFilePath = ewl_file:join_paths(FromRepo, PackageFileSuffix), 
+    ?INFO_MSG("Transitioning ~s from ~s to ~s~n", [PackageFilePath, FromRepo, ToRepo]),
+
+    Elements    = ewr_repo_paths:decompose_suffix(PackageFileSuffix),
+    ErtsVsn     = fs_lists:get_val(erts_vsn, Elements),
+    Side        = fs_lists:get_val(side, Elements),
+    Area        = fs_lists:get_val(area, Elements),
+    PackageName = fs_lists:get_val(package_name, Elements),
+    PackageVsn  = fs_lists:get_val(package_vsn, Elements),
+    transition(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo).
+
+transition(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, ToRepo) ->
+    %TmpPackagePath     = epkg_util:unpack_to_tmp(PackageFilePath),
+    PackageSuffix      = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
+    DotAppFileSuffix   = ewr_repo_paths:dot_app_file_suffix(ErtsVsn, PackageName, PackageVsn),
+    FromPackagePath    = ewl_file:join_paths(FromRepo, PackageSuffix),
+    ToPackagePath      = ewl_file:join_paths(ToRepo, PackageSuffix),
+    FromDotAppFilePath = ewl_file:join_paths(FromRepo, DotAppFileSuffix),
+    ToDotAppFilePath   = ewl_file:join_paths(ToRepo, DotAppFileSuffix),
+
+    ?INFO_MSG("ewl_file:copy_dir(~p, ~p)", [FromPackagePath, ToPackagePath]),
+    ?INFO_MSG("ewl_file:copy_dir(~p, ~p)", [FromDotAppFilePath, ToDotAppFilePath]),
+
+    ewl_file:mkdir_p(filename:dirname(ToPackagePath)),
+    ewl_file:mkdir_p(filename:dirname(ToDotAppFilePath)),
+    ewl_file:copy_dir(FromPackagePath, ToPackagePath),
+    ewl_file:copy_dir(FromDotAppFilePath, ToDotAppFilePath);
+transition(ErtsVsn, Area, "releases" = Side, PackageName, PackageVsn, FromRepo, ToRepo) ->
+    PackageSuffix      = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
+    FromPackagePath    = ewl_file:join_paths(FromRepo, PackageSuffix),
+    ToPackagePath      = ewl_file:join_paths(ToRepo, PackageSuffix),
+
+    ?INFO_MSG("ewl_file:copy_dir(~p, ~p)", [FromPackagePath, ToPackagePath]),
+
+    ewl_file:mkdir_p(filename:dirname(ToPackagePath)),
+    ewl_file:copy_dir(FromPackagePath, ToPackagePath).
+    

@@ -54,14 +54,22 @@ create_tree(FromDirPath) ->
 %% @spec find_additions(Tree::tree(), Tree2::tree()) -> Tree | []
 %% @end
 %%--------------------------------------------------------------------
-find_additions(Tree, Tree) ->
+find_additions({dir, _DirName, List}, {dir, DirName2, List2}) ->
+    case diff_subdirs(List, List2) of
+	[]         -> [];
+	SubDirDiff -> {dir, DirName2, SubDirDiff}
+    end;
+find_additions(Tree, Tree2) ->
+    find_additions2(Tree, Tree2).
+
+find_additions2(Tree, Tree) ->
     [];
-find_additions({dir, DirName, List}, {dir, DirName, List2}) ->
+find_additions2({dir, DirName, List}, {dir, DirName, List2}) ->
     case diff_subdirs(List, List2) of
 	[]         -> [];
 	SubDirDiff -> {dir, DirName, SubDirDiff}
     end;
-find_additions(_Tree, Tree2) ->
+find_additions2(_Tree, Tree2) ->
     Tree2.
  
 diff_subdirs(List, [Tree|T]) ->
@@ -72,7 +80,7 @@ diff_subdirs(_List, []) ->
 diff_subdirs2([Tree|_], Tree) ->
     [];
 diff_subdirs2([{dir, Name, _} = Tree2|_], {dir, Name, _} = Tree) ->
-    find_additions(Tree2, Tree);
+    find_additions2(Tree2, Tree);
 diff_subdirs2([_|T], Tree) ->
     diff_subdirs2(T, Tree);
 diff_subdirs2([], Tree) ->
@@ -105,7 +113,7 @@ find_additions_test() ->
 	  {dir,"path_a",[{dir,"path_a1",[{file,"file_a1"}]}]}]},
 
     TreeB = 
-	{dir,"test_dir",
+	{dir,"test_dir2",
 	 [
 	  {dir,"path_c", [{file,"file_c"}]},
 	  {dir,"path_b",
@@ -116,7 +124,7 @@ find_additions_test() ->
             {dir,"dir_b1",[{file,"file_b1-1"}]}]},
 	  {dir,"path_a",[{dir,"path_a1",[{file,"file_a1"}]}]}]},
 
-    Result = {dir,"test_dir",
+    Result = {dir,"test_dir2",
 	      [
 	       {dir,"path_c", [{file,"file_c"}]},
 	       {dir,"path_b", [{file,"file_b4"}]}
