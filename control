@@ -1,0 +1,10 @@
+{control,"portius",
+         [{package_owner,"Martin Logan"},
+          {package_owner_email,"martinjlogan@erlware.org"},
+          {categories,["server","tool"]},
+          {description,"Portius transitions packages from an erlware write only repo to a read only one"},
+          {author,"Martin Logan"},
+          {authors_email,"martinjlogan@erlware.org"},
+          {keywords,["erlware","otp","repo","repository"]},
+          {project_page,"http://code.google.com/p/portius"}]}.
+
