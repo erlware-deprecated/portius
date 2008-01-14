@@ -63,7 +63,7 @@ init([]) ->
     
     SupFlags = {RestartStrategy, MaxRestarts, MaxTimeBetRestarts},
     
-    {ok, ToFromList} = gas:get_env(portius, to_and_from),
+    {ok, ToFromList} = gas:get_env(portius, transitions),
     
     {ChildSpecs, _} = 
 	lists:foldl(fun({FromRepoDirPath, ToRepoDirPath, DocDirPath}, {Specs, Count}) ->
