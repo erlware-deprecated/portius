@@ -66,9 +66,9 @@ init([]) ->
     {ok, ToFromList} = gas:get_env(portius, to_and_from),
     
     {ChildSpecs, _} = 
-	lists:foldl(fun({FromRepoDirPath, ToRepoDirPath}, {Specs, Count}) ->
+	lists:foldl(fun({FromRepoDirPath, ToRepoDirPath, DocDirPath}, {Specs, Count}) ->
 			    {[create_trans_server_child_spec(list_to_atom("s" ++ integer_to_list(Count)), 
-							     FromRepoDirPath, ToRepoDirPath)|Specs], Count + 1}
+							     FromRepoDirPath, ToRepoDirPath, DocDirPath)|Specs], Count + 1}
 		    end,
 		    {[], 1}, ToFromList),
     
@@ -80,16 +80,17 @@ init([]) ->
 %%====================================================================
 %%--------------------------------------------------------------------
 %% @doc Create a trans server child spec.
-%% @spec create_trans_server_child_spec(Key, FromRepoDirPath, ToRepoDirPath) -> ChildSpec
+%% @spec create_trans_server_child_spec(Key, FromRepoDirPath, ToRepoDirPath, DocDirPath) -> ChildSpec
 %% where
 %%  Key = atom()
 %%  FromRepoDirPath = string()
 %%  ToRepoDirPath = string()
+%%  DocDirPath = string()
 %% @end
 %%--------------------------------------------------------------------
-create_trans_server_child_spec(Key, FromRepoDirPath, ToRepoDirPath) ->
+create_trans_server_child_spec(Key, FromRepoDirPath, ToRepoDirPath, DocDirPath) ->
     {Key,
-     {por_trans_server, start_link, [FromRepoDirPath, ToRepoDirPath]},
+     {por_trans_server, start_link, [FromRepoDirPath, ToRepoDirPath, DocDirPath]},
      permanent,
      1000,
      worker,
