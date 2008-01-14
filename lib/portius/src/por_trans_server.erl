@@ -11,7 +11,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/2]).
+-export([start_link/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -21,7 +21,7 @@
 
 -define(SERVER, ?MODULE). 
 
--record(state, {from_repo, to_repo, inspection_frequency, last_tree = {}}).
+-record(state, {from_repo, to_repo, doc_dir, inspection_frequency, last_tree = {}}).
 
 %%====================================================================
 %% API
@@ -30,11 +30,11 @@
 %% @doc
 %% Starts the server
 %%
-%% @spec start_link(FromRepoDirPath, ToRepoDirPath) -> {ok, Pid} | ignore | {error, Error}
+%% @spec start_link(FromRepoDirPath, ToRepoDirPath, DocDirPath) -> {ok, Pid} | ignore | {error, Error}
 %% @end
 %%--------------------------------------------------------------------
-start_link(FromRepoDirPath, ToRepoDirPath) ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [FromRepoDirPath, ToRepoDirPath], []).
+start_link(FromRepoDirPath, ToRepoDirPath, DocDirPath) ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [FromRepoDirPath, ToRepoDirPath, DocDirPath], []).
 
 %%====================================================================
 %% gen_server callbacks
@@ -51,11 +51,17 @@ start_link(FromRepoDirPath, ToRepoDirPath) ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([FromRepoDirPath, ToRepoDirPath]) ->
+init([FromRepoDirPath, ToRepoDirPath, DocDirPath]) ->
+    ok            = ewl_file:mkdir_p(DocDirPath),
+    ok            = ewl_file:mkdir_p(ToRepoDirPath),
     {ok, Timeout} = gas:get_env(portius, inspection_frequency),
     ToTree        = por_file_tree:create_tree(ToRepoDirPath),
-    {ok, #state{from_repo = FromRepoDirPath, to_repo = ToRepoDirPath, inspection_frequency = Timeout, last_tree = ToTree}, 
-     Timeout}.
+    State = #state{from_repo            = FromRepoDirPath, 
+		   to_repo              = ToRepoDirPath, 
+		   doc_dir              = DocDirPath, 
+		   inspection_frequency = Timeout, 
+		   last_tree            = ToTree}, 
+    {ok, State, Timeout}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -98,11 +104,12 @@ handle_cast(_Msg, State) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_info(_Info, #state{from_repo = FR, to_repo = TR, inspection_frequency = Timeout, last_tree = LastTree} = State) ->
+handle_info(_Info, #state{from_repo = FR, to_repo = TR, inspection_frequency = Timeout, 
+			  last_tree = LastTree, doc_dir = DocDirPath} = State) ->
     Tree     = por_file_tree:create_tree(FR),
     TreeDiff = por_file_tree:find_additions(LastTree, Tree),
     ?INFO_MSG("tree diff ~p~ngoing to ~s~n", [TreeDiff, TR]),
-    handle_transitions(TreeDiff, FR, TR),
+    handle_transitions(TreeDiff, FR, TR, DocDirPath),
     {noreply, State#state{last_tree = Tree}, Timeout}.
 
 
@@ -140,9 +147,9 @@ code_change(_OldVsn, State, _Extra) ->
 %% @doc handle the transitions of all packages from one repo to another
 %% @end
 %%--------------------------------------------------------------------
-handle_transitions([], _FromRepo, _ToRepo) ->
+handle_transitions([], _FromRepo, _ToRepo, _DocDirPath) ->
     ok;
-handle_transitions(TreeDiff, FromRepo, ToRepo) ->
+handle_transitions(TreeDiff, FromRepo, ToRepo, DocDirPath) ->
     NewFiles = lists:map(fun(Path) -> 
 				 {ok, {_, Rest}} = fs_lists:separate_by_token(Path, "/"),
 				 Rest
@@ -150,7 +157,7 @@ handle_transitions(TreeDiff, FromRepo, ToRepo) ->
     lists:foreach(fun(FilePath) ->
 			  case regexp:match(FilePath, ".*Meta.*") of
 			      {match, _, _} -> ok;
-			      _             -> handle_transition(FilePath, FromRepo, ToRepo)
+			      _             -> handle_transition(FilePath, FromRepo, ToRepo, DocDirPath)
 			  end
 		  end, NewFiles).
  				  
@@ -159,7 +166,7 @@ handle_transitions(TreeDiff, FromRepo, ToRepo) ->
 %% @doc handle the transition of a package from one repo to another
 %% @end
 %%--------------------------------------------------------------------
-handle_transition(PackageFileSuffix, FromRepo, ToRepo) ->
+handle_transition(PackageFileSuffix, FromRepo, ToRepo, DocDirPath) ->
     PackageFilePath = ewl_file:join_paths(FromRepo, PackageFileSuffix), 
     ?INFO_MSG("Transitioning ~s from ~s to ~s~n", [PackageFilePath, FromRepo, ToRepo]),
 
@@ -169,25 +176,26 @@ handle_transition(PackageFileSuffix, FromRepo, ToRepo) ->
     Area        = fs_lists:get_val(area, Elements),
     PackageName = fs_lists:get_val(package_name, Elements),
     PackageVsn  = fs_lists:get_val(package_vsn, Elements),
-    transition(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo).
+    transition(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo, DocDirPath).
 
-transition(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, ToRepo) ->
-    %TmpPackagePath     = epkg_util:unpack_to_tmp(PackageFilePath),
-    PackageSuffix      = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
-    DotAppFileSuffix   = ewr_repo_paths:dot_app_file_suffix(ErtsVsn, PackageName, PackageVsn),
-    FromPackagePath    = ewl_file:join_paths(FromRepo, PackageSuffix),
-    ToPackagePath      = ewl_file:join_paths(ToRepo, PackageSuffix),
-    FromDotAppFilePath = ewl_file:join_paths(FromRepo, DotAppFileSuffix),
-    ToDotAppFilePath   = ewl_file:join_paths(ToRepo, DotAppFileSuffix),
-
-    ?INFO_MSG("ewl_file:copy_dir(~p, ~p)", [FromPackagePath, ToPackagePath]),
-    ?INFO_MSG("ewl_file:copy_dir(~p, ~p)", [FromDotAppFilePath, ToDotAppFilePath]),
-
-    ewl_file:mkdir_p(filename:dirname(ToPackagePath)),
-    ewl_file:mkdir_p(filename:dirname(ToDotAppFilePath)),
-    ewl_file:copy_dir(FromPackagePath, ToPackagePath),
-    ewl_file:copy_dir(FromDotAppFilePath, ToDotAppFilePath);
-transition(ErtsVsn, Area, "releases" = Side, PackageName, PackageVsn, FromRepo, ToRepo) ->
+%%--------------------------------------------------------------------
+%% @private
+%% @doc Transition apps on the lib side and releases on the releases side.
+%% @spec transition(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo, DocDirPath) -> ok
+%% @end
+%%--------------------------------------------------------------------
+transition(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, ToRepo, DocDirPath) ->
+    PackageSuffix   = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
+    FromPackagePath = ewl_file:join_paths(FromRepo, PackageSuffix),
+    TmpPackageDirPath  = epkg_util:unpack_to_tmp(FromPackagePath),
+    case epkg_validation:is_package_an_app(TmpPackageDirPath) of
+	true ->
+	    build_app_docs(TmpPackageDirPath, DocDirPath),
+	    copy_over_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, ToRepo);
+	false ->
+	    ?ERROR_MSG("~s failed validation~n", [FromPackagePath])
+    end;
+transition(ErtsVsn, Area, "releases" = Side, PackageName, PackageVsn, FromRepo, ToRepo, _DocDirPath) ->
     PackageSuffix      = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
     FromPackagePath    = ewl_file:join_paths(FromRepo, PackageSuffix),
     ToPackagePath      = ewl_file:join_paths(ToRepo, PackageSuffix),
@@ -196,4 +204,47 @@ transition(ErtsVsn, Area, "releases" = Side, PackageName, PackageVsn, FromRepo, 
 
     ewl_file:mkdir_p(filename:dirname(ToPackagePath)),
     ewl_file:copy_dir(FromPackagePath, ToPackagePath).
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc Copy over an app package from one repo to another.
+%% @spec copy_over_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo) -> ok | exit()
+%% @end
+%%--------------------------------------------------------------------
+copy_over_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, ToRepo) ->
+    PackageSuffix      = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
+    DotAppFileSuffix   = ewr_repo_paths:dot_app_file_suffix(ErtsVsn, PackageName, PackageVsn),
+    FromPackagePath    = ewl_file:join_paths(FromRepo, PackageSuffix),
+    ToPackagePath      = ewl_file:join_paths(ToRepo, PackageSuffix),
+    FromDotAppFilePath = ewl_file:join_paths(FromRepo, DotAppFileSuffix),
+    ToDotAppFilePath   = ewl_file:join_paths(ToRepo, DotAppFileSuffix),
+
+    
+    ?INFO_MSG("ewl_file:copy_dir(~p, ~p)", [FromPackagePath, ToPackagePath]),
+    ?INFO_MSG("ewl_file:copy_dir(~p, ~p)", [FromDotAppFilePath, ToDotAppFilePath]),
+
+    ewl_file:mkdir_p(filename:dirname(ToPackagePath)),
+    ewl_file:mkdir_p(filename:dirname(ToDotAppFilePath)),
+    ewl_file:copy_dir(FromPackagePath, ToPackagePath),
+    ewl_file:copy_dir(FromDotAppFilePath, ToDotAppFilePath).
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc Build the documentation for an application.
+%% @spec build_app_docs(PackageDirPath, DocDirPath) -> ok | {error, Reason}
+%% @end
+%%--------------------------------------------------------------------
+build_app_docs(PackageDirPath, DocDirPath) ->
+    {ok, {AppName, AppVsn}} = ewl_installed_paths:package_dir_to_name_and_vsn(PackageDirPath),
+    case edoc:application(faxien, PackageDirPath, []) of
+	ok -> 
+	    LibDocDirPath = ewl_file:join_paths(ewl_file:join_paths(DocDirPath, "lib"), AppName ++ "-" ++ AppVsn),
+	    ewl_file:copy_dir(ewl_file:join_paths(PackageDirPath, "doc"), LibDocDirPath);
+	_  -> 
+	    ?ERROR_MSG("doc failed for ~s-~s~n", [AppName, AppVsn]),
+	    {error, {doc_failed, AppName, AppVsn}}
+    end.
+	    
+
+
     
