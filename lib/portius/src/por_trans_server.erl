@@ -156,8 +156,13 @@ handle_transitions(TreeDiff, FromRepo, ToRepo, DocDirPath) ->
 			 end, por_file_tree:file_paths(TreeDiff)),
     lists:foreach(fun(FilePath) ->
 			  case regexp:match(FilePath, ".*Meta.*") of
-			      {match, _, _} -> ok;
-			      _             -> handle_transition(FilePath, FromRepo, ToRepo, DocDirPath)
+			      {match, _, _} -> 
+				  ok;
+			      _             -> 
+				  case catch handle_transition(FilePath, FromRepo, ToRepo, DocDirPath) of
+				      ok    -> ok;
+				      Error -> ?ERROR_MSG("handle transition returned error ~p~n", [Error])
+				  end
 			  end
 		  end, NewFiles).
  				  
@@ -190,15 +195,16 @@ transition(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, ToRep
     TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
     case epkg_validation:is_package_an_app(TmpPackageDirPath) of
 	true ->
-	    build_app_docs(TmpPackageDirPath, DocDirPath),
+	    %% @todo right now docs are optional - in the future we can email the package owner with a notification
+	    (catch build_app_docs(TmpPackageDirPath, DocDirPath)),
 	    copy_over_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
 	false ->
 	    ?ERROR_MSG("~s failed validation~n", [FromPackagePath])
     end;
 transition(ErtsVsn, Area, "releases" = Side, PackageName, PackageVsn, FromRepo, ToRepo, _DocDirPath) ->
-    PackageSuffix      = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
-    FromPackagePath    = ewl_file:join_paths(FromRepo, PackageSuffix),
-    ToPackagePath      = ewl_file:join_paths(ToRepo, PackageSuffix),
+    PackageSuffix   = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
+    FromPackagePath = ewl_file:join_paths(FromRepo, PackageSuffix),
+    ToPackagePath   = ewl_file:join_paths(ToRepo, PackageSuffix),
 
     ?INFO_MSG("ewl_file:copy_dir(~p, ~p)", [FromPackagePath, ToPackagePath]),
 
@@ -236,7 +242,7 @@ copy_over_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, To
 %%--------------------------------------------------------------------
 build_app_docs(PackageDirPath, DocDirPath) ->
     {ok, {AppName, AppVsn}} = epkg_installed_paths:package_dir_to_name_and_vsn(PackageDirPath),
-    case edoc:application(faxien, PackageDirPath, []) of
+    case catch edoc:application(faxien, PackageDirPath, []) of
 	ok -> 
 	    GeneratedDocDirPath = ewl_file:join_paths(PackageDirPath, "doc"),
 	    LibDocDirPath       = ewl_file:join_paths(ewl_file:join_paths(DocDirPath, "lib"), AppName ++ "-" ++ AppVsn),
