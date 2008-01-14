@@ -242,7 +242,7 @@ copy_over_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, To
 %%--------------------------------------------------------------------
 build_app_docs(PackageDirPath, DocDirPath) ->
     {ok, {AppName, AppVsn}} = epkg_installed_paths:package_dir_to_name_and_vsn(PackageDirPath),
-    case catch edoc:application(faxien, PackageDirPath, []) of
+    case catch edoc:application(list_to_atom(AppName), PackageDirPath, []) of
 	ok -> 
 	    GeneratedDocDirPath = ewl_file:join_paths(PackageDirPath, "doc"),
 	    LibDocDirPath       = ewl_file:join_paths(ewl_file:join_paths(DocDirPath, "lib"), AppName ++ "-" ++ AppVsn),
