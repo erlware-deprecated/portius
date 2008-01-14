@@ -2,7 +2,7 @@
 
 #### Fill in values for these variables ####
 REL_NAME=portius
-REL_VSN=0.2.1.0
+REL_VSN=0.2.1.1
 ERTS_VSN=5.5.5
 INVOCATION_SUFFIX="-detached"
 ###########################################

@@ -2,7 +2,13 @@
 %%% @author Martin Logan <martinjlogan@Macintosh.local>
 %%% @copyright (C) 2008, Martin Logan
 %%% @doc
-%%%  Application entry point for Portius.
+%%%  Application entry point for Portius. Portius currently does three things:
+%%% <pre>
+%%%  - Move packages from one repo to another
+%%%  - Vet the packages before doing the move
+%%%  - Generate edoc documentation for all app packages and put them in a well
+%%%    known and configuratble location.
+%%% </pre>
 %%% @end
 %%% Created :  1 Jan 2008 by Martin Logan <martinjlogan@Macintosh.local>
 %%%-------------------------------------------------------------------
