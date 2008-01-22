@@ -56,6 +56,10 @@ init([FromRepoDirPath, ToRepoDirPath, DocDirPath]) ->
     ok            = ewl_file:mkdir_p(ToRepoDirPath),
     {ok, Timeout} = gas:get_env(portius, inspection_frequency),
     ToTree        = por_file_tree:create_tree(ToRepoDirPath),
+
+    ?INFO_MSG("initializing with:~n - from repo ~s~n - to repo ~s~n - doc path ~s~n - inspection frequency ~p~n", 
+	      [FromRepoDirPath, ToRepoDirPath, DocDirPath, Timeout]),
+
     State = #state{from_repo            = FromRepoDirPath, 
 		   to_repo              = ToRepoDirPath, 
 		   doc_dir              = DocDirPath, 
@@ -108,7 +112,6 @@ handle_info(_Info, #state{from_repo = FR, to_repo = TR, inspection_frequency = T
 			  last_tree = LastTree, doc_dir = DocDirPath} = State) ->
     Tree     = por_file_tree:create_tree(FR),
     TreeDiff = por_file_tree:find_additions(LastTree, Tree),
-    ?INFO_MSG("tree diff ~p~ngoing to ~s~n", [TreeDiff, TR]),
     handle_transitions(TreeDiff, FR, TR, DocDirPath),
     {noreply, State#state{last_tree = Tree}, Timeout}.
 
@@ -150,10 +153,12 @@ code_change(_OldVsn, State, _Extra) ->
 handle_transitions([], _FromRepo, _ToRepo, _DocDirPath) ->
     ok;
 handle_transitions(TreeDiff, FromRepo, ToRepo, DocDirPath) ->
+    ?INFO_MSG("tree diff ~p~ngoing to ~s~n", [TreeDiff, ToRepo]),
     NewFiles = lists:map(fun(Path) -> 
 				 {ok, {_, Rest}} = fs_lists:separate_by_token(Path, "/"),
 				 Rest
 			 end, por_file_tree:file_paths(TreeDiff)),
+    ?INFO_MSG("Files to be transfered ~p~n",[NewFiles]),
     lists:foreach(fun(FilePath) ->
 			  case regexp:match(FilePath, ".*Meta.*") of
 			      {match, _, _} -> 
@@ -196,7 +201,7 @@ transition(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, ToRep
     case epkg_validation:is_package_an_app(TmpPackageDirPath) of
 	true ->
 	    %% @todo right now docs are optional - in the future we can email the package owner with a notification
-	    (catch build_app_docs(TmpPackageDirPath, DocDirPath)),
+	    (catch build_app_docs(TmpPackageDirPath, DocDirPath, ErtsVsn)),
 	    copy_over_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
 	false ->
 	    ?ERROR_MSG("~s failed validation~n", [FromPackagePath])
@@ -206,7 +211,7 @@ transition(ErtsVsn, Area, "releases" = Side, PackageName, PackageVsn, FromRepo, 
     FromPackagePath = ewl_file:join_paths(FromRepo, PackageSuffix),
     ToPackagePath   = ewl_file:join_paths(ToRepo, PackageSuffix),
 
-    ?INFO_MSG("ewl_file:copy_dir(~p, ~p)", [FromPackagePath, ToPackagePath]),
+    ?INFO_MSG("copy dir from ~s to ~s~n", [FromPackagePath, ToPackagePath]),
 
     ewl_file:mkdir_p(filename:dirname(ToPackagePath)),
     ewl_file:copy_dir(FromPackagePath, ToPackagePath).
@@ -226,8 +231,8 @@ copy_over_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, To
     ToDotAppFilePath   = ewl_file:join_paths(ToRepo, DotAppFileSuffix),
 
     
-    ?INFO_MSG("ewl_file:copy_dir(~p, ~p)", [FromPackagePath, ToPackagePath]),
-    ?INFO_MSG("ewl_file:copy_dir(~p, ~p)", [FromDotAppFilePath, ToDotAppFilePath]),
+    ?INFO_MSG("copy dir from ~s to ~s~n", [FromPackagePath, ToPackagePath]),
+    ?INFO_MSG("copy dir from ~s to ~s~n", [FromDotAppFilePath, ToDotAppFilePath]),
 
     ewl_file:mkdir_p(filename:dirname(ToPackagePath)),
     ewl_file:mkdir_p(filename:dirname(ToDotAppFilePath)),
@@ -237,17 +242,18 @@ copy_over_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, To
 %%--------------------------------------------------------------------
 %% @private
 %% @doc Build the documentation for an application.
-%% @spec build_app_docs(PackageDirPath, DocDirPath) -> ok | {error, Reason}
+%% @spec build_app_docs(PackageDirPath, DocDirPath, ErtsVsn) -> ok | {error, Reason}
 %% @end
 %%--------------------------------------------------------------------
-build_app_docs(PackageDirPath, DocDirPath) ->
+build_app_docs(PackageDirPath, DocDirPath, ErtsVsn) ->
     {ok, {AppName, AppVsn}} = epkg_installed_paths:package_dir_to_name_and_vsn(PackageDirPath),
-    ?INFO_MSG("edoc:application(~p, ~p, [])~n", [list_to_atom(AppName), PackageDirPath]),
     case catch edoc:application(list_to_atom(AppName), PackageDirPath, []) of
 	ok -> 
 	    GeneratedDocDirPath = ewl_file:join_paths(PackageDirPath, "doc"),
-	    LibDocDirPath       = ewl_file:join_paths(ewl_file:join_paths(DocDirPath, "lib"), AppName ++ "-" ++ AppVsn),
+	    LibDocDirPath       = ewl_file:join_paths(ewl_file:join_paths(DocDirPath, ewl_file:join_paths(ErtsVsn, "lib")), 
+									  AppName ++ "-" ++ AppVsn),
 	    ewl_file:mkdir_p(LibDocDirPath),
+	    ?INFO_MSG("copy doc dir from ~s to ~s~n", [GeneratedDocDirPath, LibDocDirPath]),
 	    ewl_file:copy_dir(GeneratedDocDirPath, LibDocDirPath);
 	_  -> 
 	    ?ERROR_MSG("doc failed for ~s-~s~n", [AppName, AppVsn]),
