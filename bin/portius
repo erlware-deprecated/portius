@@ -1,18 +1,21 @@
 #!/bin/sh
 
+
 #### Fill in values for these variables ####
 REL_NAME=portius
-REL_VSN=0.3.0.1
+REL_VSN=0.3.0.2
 ERTS_VSN=5.5.5
 INVOCATION_SUFFIX="-detached"
 ###########################################
 
 PREFIX=$(cd $(dirname $(dirname $0)); pwd)
 
-export ROOTDIR=$PREFIX
-export BINDIR=$PREFIX/erts/$ERTS_VSN/bin
+export ROOTDIR=$PREFIX/application_packages/$ERTS_VSN
+export BINDIR=$PREFIX/erts_packages/erts-$ERTS_VSN/bin
 export EMU=beam
 export PROGNAME=erl
 export LD_LIBRARY_PATH=$PREFIX/erts/$ERTS_VSN/lib
 
-$BINDIR/erlexec -config $PREFIX/release_packages/$REL_NAME/$REL_VSN/release/sys.config -boot $PREFIX/release_packages/$REL_NAME/$REL_VSN/release/$REL_NAME $INVOCATION_SUFFIX
+REL_DIR=$PREFIX/release_packages/$REL_NAME-$REL_VSN/release
+
+$BINDIR/erlexec -config $REL_DIR/sys.config -boot $REL_DIR/$REL_NAME $INVOCATION_SUFFIX

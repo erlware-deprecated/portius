@@ -20,7 +20,7 @@
   {registered, []},
 
   % Applications that are to be started prior to this one.
-  {applications, [eunit, kernel, stdlib, sasl, gas, fslib, epkg, ewrepo, ewlib]},
+  {applications, [eunit, kernel, stdlib, sasl, gas, fslib, epkg, ewrepo, ewlib, sgte]},
 
   % OTP application loader will load, but not start, included apps
   {included_applications, []},
