@@ -13,6 +13,7 @@
 	por_app,
 	por_sup,
 	por_file_tree,
+	por_template,
 	por_trans_server
    ]},
 
