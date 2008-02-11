@@ -203,6 +203,8 @@ transition(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, ToRep
 	true ->
 	    %% @todo right now docs are optional - in the future we can email the package owner with a notification
 	    (catch build_app_docs(TmpPackageDirPath, DocDirPath, ErtsVsn)),
+	    (catch por_template:create_app_index_page(ewl_file:join_paths(DocDirPath, "app_index.html"),
+						      DocDirPath)),
 	    copy_over_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
 	false ->
 	    ?ERROR_MSG("~s failed validation~n", [FromPackagePath])
