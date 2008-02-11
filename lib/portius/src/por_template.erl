@@ -15,26 +15,43 @@
 -module(por_template).
 
 %% API
--export([erlware_site/1]).
+-export([
+	 create_app_index_page/2
+	]).
+
+-include("eunit.hrl").
 
 %%====================================================================
 %% API
 %%====================================================================
+
 %%--------------------------------------------------------------------
-%% @doc Builds erlware-site documentation links page
-%% @spec erlware_site([app_info()]) -> ok
+%% @doc Create app index file.
+%% @spec create_app_index_page(AppIndexTemplateFilePath, DocRootDirPath) -> ok
+%% where
+%%  AppIndexTemplateFilePath = string()
+%%  DocRootDirPath = string()
 %% @end
 %%--------------------------------------------------------------------
-erlware_site(AppNames) ->
-    apps_template(AppNames).
+create_app_index_page(AppIndexTemplateFilePath, DocRootDirPath) -> 
+    {ok, CompiledAppIndexTemplateFile} = sgte:compile_file(AppIndexTemplateFilePath),
+    {ok, Map}                          = sgte:compile("$map li apps$"),
+    AppSpecs = gather_app_specs(DocRootDirPath),
+    NewPage  = sgte:render_string(Map, [{apps, CompiledAppIndexTemplateFile}, AppSpecs]),
+    {ok, IOD} = file:open(AppIndexTemplateFilePath, [write]),
+    ok = io:fwrite(IOD, "~s", [NewPage]).
 
-%%====================================================================
-%% Internal functions
-%%====================================================================
-apps_template(AppNames) ->
-    Apps = [{app, AppName} || AppName <- AppNames],
-    {ok, AppTemplate} = sgte:compile(" * $app_name$~n"),
-    {ok, AppsTemplate} = sgte:compile("$map app app_names$"),
-    sgte:render_str(
-      AppsTemplate,
-      [{app, AppTemplate}, {app_names, [{app_name, foo}, {app_name, bar}]}]).
+gather_app_specs(DocRootDirPath) ->
+    dict:to_list(lists:foldl(fun(ErtsDirPath, Dict) ->
+				     AppPaths = filelib:wildcard(ewl_file:join_paths(ErtsDirPath, "*")),
+				     ErtsVsn  = filename:basename(ErtsDirPath),
+				     populate_dict(AppPaths, ErtsVsn, Dict) 
+			     end,
+			     dict:new(),
+			     filelib:wildcard(ewl_file:join_paths(DocRootDirPath, "*")))).
+
+populate_dict([AppPath|T], ErtsVsn, Dict) ->    
+    {ok, {AppName, AppVsn}} = epkg_installed_paths:package_dir_to_name_and_vsn(AppPath),
+    populate_dict(T, ErtsVsn,  dict:append(AppName, {AppVsn, ErtsVsn, AppPath}, Dict));
+populate_dict([], _ErtsVsn, Dict) ->    
+    Dict.
