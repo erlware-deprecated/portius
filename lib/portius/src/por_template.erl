@@ -15,7 +15,7 @@
 
 %% API
 -export([
-	 create_app_index_page/3
+	 create_app_index_page/4
 	]).
 
 -include("eunit.hrl").
@@ -27,36 +27,49 @@
 
 %%--------------------------------------------------------------------
 %% @doc Create app index file.
-%% @spec create_app_index_page(BlankAppIndexTemplateFilePath, RenderedAppIndexTemplateFilePath, DocRootDirPath) -> ok
+%% @spec create_app_index_page(BlankAppIndexTemplateFilePath, RenderedAppIndexTemplateFilePath, DocRootDirPath, DocRoot) -> ok
 %% where
 %%  BlankAppIndexTemplateFilePath = string()
 %%  RenderedAppIndexTemplateFilePath = string()
 %%  DocRootDirPath = string()
+%%  DocRoot = string()
 %% @end
 %%--------------------------------------------------------------------
-create_app_index_page(BlankAppIndexFilePath, RenderedAppIndexFilePath, DocRootDirPath) -> 
+create_app_index_page(BlankAppIndexFilePath, RenderedAppIndexFilePath, DocRootDirPath, DocRoot) -> 
     ?INFO_MSG("~p ~p~n", [BlankAppIndexFilePath, DocRootDirPath]),
     AppSpecs                       = gather_app_specs(DocRootDirPath),
     ?INFO_MSG("app specs ~p~n", [AppSpecs]),
-    {ok, CompiledAppIndexTemplate} = sgte:compile_file(BlankAppIndexFilePath),
-    NewPage = render_page(CompiledAppIndexTemplate, AppSpecs),
+    {ok, CompiledAppIndexTemplate} = get_compiled_template(BlankAppIndexFilePath),
+    NewPage = render_page(CompiledAppIndexTemplate, AppSpecs, DocRoot),
     {ok, IOD} = file:open(RenderedAppIndexFilePath, [write]),
     ok = io:fwrite(IOD, "~s", [NewPage]).
 
-render_page(CompiledAppIndexTemplate, AppSpecs) ->
+get_compiled_template(BlankAppIndexFilePath) ->
+    case sgte:compile_file(BlankAppIndexFilePath) of
+	{ok, _} = Resp -> 
+	    Resp;
+	{error, enoent} ->
+	    ?ERROR_MSG("Could not find blank app index file at ~s. Creating one~n", [BlankAppIndexFilePath]),
+	    {ok, IOD} = file:open(BlankAppIndexFilePath, [write]),
+	    ok = io:fwrite(IOD, "~s", ["<html>\n <head></head>\n <body>\n  <h1>App Docs</h1>\n  <ul>\n" ++
+				       "$app_list$\n  </ul>\n <small>powered by Erlware Portius</small>\n </body>\n</html>"]),
+	    get_compiled_template(BlankAppIndexFilePath)
+    end.
+
+render_page(CompiledAppIndexTemplate, AppSpecs, DocRoot) ->
     {ok, AppTemplate} = sgte:compile("<li>$appspec.name$ <a href=\"$appspec.path$\">$appspec.vsn$</a> $appspec.erts_vsn$</li>"),
     {ok, Map} = sgte:compile("$map li apps$"),
-    Str = sgte:render_str(Map, [{li, AppTemplate}, {apps, massage_app_specs(AppSpecs)}]),
+    Str = sgte:render_str(Map, [{li, AppTemplate}, {apps, massage_app_specs(AppSpecs, DocRoot)}]),
     sgte:render_str(CompiledAppIndexTemplate, [{app_list, Str}]).
     
-massage_app_specs([{AppName, Attributes}|T]) ->
+massage_app_specs([{AppName, Attributes}|T], DocRoot) ->
     RenderableAppSpec = lists:map(
 			  fun({AppVsn, ErtsVsn, AppPath}) ->
-				  {appspec, [{name, AppName}, {vsn, AppVsn}, {erts_vsn, ErtsVsn}, {path, AppPath}]}
+				  {appspec, [{name, AppName}, {vsn, AppVsn}, {erts_vsn, ErtsVsn}, {path, string:substr(AppPath, length(DocRoot) + 1, length(AppPath))}]}
 			  end,
 			  Attributes),
-     [RenderableAppSpec|massage_app_specs(T)];
-massage_app_specs([]) ->
+     [RenderableAppSpec|massage_app_specs(T, DocRoot)];
+massage_app_specs([], _DocRoot) ->
     [].
     
 
@@ -85,8 +98,4 @@ populate_dict([], _ErtsVsn, Dict) ->
 %%====================================================================
 %% Test Functions
 %%====================================================================
-render_page_test() ->
-    {ok, CompiledTemplate} = sgte:compile("<li>$app_spec$</li>"),
-    Result = "<li>yo</li>\n<li>jo</li>",
 
-    ?assertMatch(Result, render_page(CompiledTemplate, [{app_spec, "yo"}, {app_spec, "jo"}])).
