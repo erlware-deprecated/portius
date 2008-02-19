@@ -98,7 +98,8 @@ render_page(IndexTemplate, PartTemplate, AppSpecs, DocRoot) ->
     sgte:render_str(IndexTemplate, [{app_list, Str}]).
     
 create_renderable_specs(Specs, DocRoot) ->
-    lists:flatten(massage_app_specs(Specs, DocRoot)).
+    lists:sort(fun({appspec, L1}, {appspec, L2}) -> fs_lists:get_val(name, L1) < fs_lists:get_val(name, L2)
+	       end, lists:flatten(massage_app_specs(Specs, DocRoot))).
 
 massage_app_specs([{AppName, Attributes}|T], DocRoot) ->
     [{HighAppVsn, HighErtsVsn, HighAppPath}|AggregatedAttributes] = group_erts_vsns(sort_by_version(Attributes)),
