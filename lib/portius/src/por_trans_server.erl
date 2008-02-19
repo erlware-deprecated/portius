@@ -204,23 +204,69 @@ handle_transition(PackageFileSuffix, FromRepo, ToRepo, DocDirPath, BlankAppIndex
     PackageFilePath = ewl_file:join_paths(FromRepo, PackageFileSuffix), 
     ?INFO_MSG("Transitioning ~s from ~s to ~s~n", [PackageFilePath, FromRepo, ToRepo]),
 
-    Elements    = ewr_repo_paths:decompose_suffix(PackageFileSuffix),
-    ErtsVsn     = fs_lists:get_val(erts_vsn, Elements),
-    Side        = fs_lists:get_val(side, Elements),
-    Area        = fs_lists:get_val(area, Elements),
-    PackageName = fs_lists:get_val(package_name, Elements),
-    PackageVsn  = fs_lists:get_val(package_vsn, Elements),
-    transition(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, 
-	       ToRepo, DocDirPath, BlankAppIndexFilePath, RenderedAppIndexFilePath, DocRoot).
+    case regexp:match(PackageFilePath, "/erts.") of
+	{match, _, _} ->
+	    ?INFO_MSG("transitioning erts ~p~n", [PackageFilePath]),
+	    Elements = ewr_repo_paths:decompose_suffix(PackageFileSuffix),
+	    ErtsVsn  = fs_lists:get_val(erts_vsn, Elements),
+	    Area     = fs_lists:get_val(area, Elements),
+	    transition_erts(ErtsVsn, Area, FromRepo, ToRepo);
+	_ ->
+	    ?INFO_MSG("transitioning ~p~n", [PackageFilePath]),
+	    Elements    = ewr_repo_paths:decompose_suffix(PackageFileSuffix),
+	    ErtsVsn     = fs_lists:get_val(erts_vsn, Elements),
+	    Side        = fs_lists:get_val(side, Elements),
+	    Area        = fs_lists:get_val(area, Elements),
+	    PackageName = fs_lists:get_val(package_name, Elements),
+	    PackageVsn  = fs_lists:get_val(package_vsn, Elements),
+	    case Side of
+		"lib" ->
+		    transition_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, 
+				   ToRepo, DocDirPath, BlankAppIndexFilePath, RenderedAppIndexFilePath, DocRoot);
+		"releases" ->
+		    transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo)
+	    end
+    end.
 
 %%--------------------------------------------------------------------
 %% @private
-%% @doc Transition apps on the lib side and releases on the releases side.
-%% @spec transition(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo, DocDirPath, 
-%%                  BlankAppIndexFilePath, RenderedAppIndexFilePath, DocRoot) -> ok
+%% @doc Transition an erts package from the FromRepo to the ToRepo.
 %% @end
 %%--------------------------------------------------------------------
-transition(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, 
+transition_erts(ErtsVsn, Area, FromRepo, ToRepo) ->
+    PackageSuffix     = ewr_repo_paths:erts_package_suffix(ErtsVsn, Area),
+    FromPackagePath   = ewl_file:join_paths(FromRepo, PackageSuffix),
+    TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
+
+    case epkg_validation:is_package_erts(TmpPackageDirPath) of
+	true ->
+	    copy_over_erts(ErtsVsn, Area, FromRepo, ToRepo);
+	false ->
+	    ?ERROR_MSG("~s failed validation~n", [FromPackagePath])
+    end.
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc Copy over an erts package from one repo to another.
+%% @end
+%%--------------------------------------------------------------------
+copy_over_erts(ErtsVsn, Area, FromRepo, ToRepo) ->
+    ErtsSuffix       = ewr_repo_paths:erts_package_suffix(ErtsVsn, Area),
+    FromErtsFilePath = ewl_file:join_paths(FromRepo, ErtsSuffix),
+    ToErtsFilePath   = ewl_file:join_paths(ToRepo, ErtsSuffix),
+    
+    ?INFO_MSG("copy dir from ~s to ~s~n", [FromErtsFilePath, ToErtsFilePath]),
+    
+    ewl_file:mkdir_p(filename:dirname(ToErtsFilePath)),
+    ewl_file:copy_dir(FromErtsFilePath, ToErtsFilePath).
+    
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc Transition an app from the FromRepo to the ToRepo.
+%% @end
+%%--------------------------------------------------------------------
+transition_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, 
 	   ToRepo, DocDirPath, BlankAppIndexFilePath, RenderedAppIndexFilePath, DocRoot) ->
     PackageSuffix     = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
     FromPackagePath   = ewl_file:join_paths(FromRepo, PackageSuffix),
@@ -236,24 +282,11 @@ transition(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo,
 	    copy_over_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
 	false ->
 	    ?ERROR_MSG("~s failed validation~n", [FromPackagePath])
-    end;
-transition(ErtsVsn, Area, "releases" = Side, PackageName, PackageVsn, FromRepo, 
-	   ToRepo, _DocDirPath, _BlankAppIndexFilePath, _RenderedAppIndexFilePath, _DocRoot) ->
-    PackageSuffix     = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
-    FromPackagePath   = ewl_file:join_paths(FromRepo, PackageSuffix),
-    TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
-
-    case epkg_validation:is_package_a_release(TmpPackageDirPath) of
-	true ->
-	    copy_over_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
-	false ->
-	    ?ERROR_MSG("~s failed validation~n", [FromPackagePath])
     end.
 
 %%--------------------------------------------------------------------
 %% @private
 %% @doc Copy over an app package from one repo to another.
-%% @spec copy_over_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo) -> ok | exit()
 %% @end
 %%--------------------------------------------------------------------
 copy_over_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, ToRepo) ->
@@ -275,8 +308,24 @@ copy_over_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, To
 
 %%--------------------------------------------------------------------
 %% @private
+%% @doc Transition a release package from the FromRepo to the ToRepo.
+%% @end
+%%--------------------------------------------------------------------
+transition_release(ErtsVsn, Area, "releases" = Side, PackageName, PackageVsn, FromRepo, ToRepo) ->
+    PackageSuffix     = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
+    FromPackagePath   = ewl_file:join_paths(FromRepo, PackageSuffix),
+    TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
+
+    case epkg_validation:is_package_a_release(TmpPackageDirPath) of
+	true ->
+	    copy_over_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
+	false ->
+	    ?ERROR_MSG("~s failed validation~n", [FromPackagePath])
+    end.
+
+%%--------------------------------------------------------------------
+%% @private
 %% @doc Copy over an release package from one repo to another.
-%% @spec copy_over_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo) -> ok | exit()
 %% @end
 %%--------------------------------------------------------------------
 copy_over_release(ErtsVsn, Area, "releases" = Side, PackageName, PackageVsn, FromRepo, ToRepo) ->
