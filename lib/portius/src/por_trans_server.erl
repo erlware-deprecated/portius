@@ -367,9 +367,9 @@ build_app_docs(PackageDirPath, DocDirPath, ErtsVsn) ->
 	    ewl_file:mkdir_p(LibDocDirPath),
 	    ?INFO_MSG("copy doc dir from ~s to ~s~n", [GeneratedDocDirPath, LibDocDirPath]),
 	    ewl_file:copy_dir(GeneratedDocDirPath, LibDocDirPath);
-	_  -> 
-	    ?ERROR_MSG("doc failed for ~s-~s~n", [AppName, AppVsn]),
-	    {error, {doc_failed, AppName, AppVsn}}
+	Error  -> 
+	    ?ERROR_MSG("doc failed for ~s-~s wieh ~p~n", [AppName, AppVsn, Error]),
+	    {error, {doc_failed, AppName, AppVsn, Error}}
     end.
 	    
 
