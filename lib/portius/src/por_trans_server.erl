@@ -11,7 +11,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/6]).
+-export([start_link/5]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -26,8 +26,7 @@
 		doc_dir, 
 		inspection_frequency, 
 		last_tree = {}, 
-		blank_app_index_file_path, 
-		rendered_app_index_file_path,
+		app_index_file_path, 
 	        doc_root}).
 
 %%====================================================================
@@ -37,17 +36,16 @@
 %% @doc
 %% Starts the server
 %%
-%% @spec start_link(FromRepoDirPath, ToRepoDirPath, DocDirPath, BlankAppIndexFilePath, RenderedAppIndexFilePath, DocRoot) -> 
+%% @spec start_link(FromRepoDirPath, ToRepoDirPath, DocDirPath, AppIndexFilePath, DocRoot) -> 
 %%       {ok, Pid} | ignore | {error, Error}
 %% @end
 %%--------------------------------------------------------------------
-start_link(FromRepoDirPath, ToRepoDirPath, DocDirPath, BlankAppIndexFilePath, RenderedAppIndexFilePath, DocRoot) ->
+start_link(FromRepoDirPath, ToRepoDirPath, DocDirPath, AppIndexFilePath, DocRoot) ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, 
 			  [FromRepoDirPath, 
 			   ToRepoDirPath, 
 			   DocDirPath, 
-			   BlankAppIndexFilePath, 
-			   RenderedAppIndexFilePath, 
+			   AppIndexFilePath, 
 			   DocRoot], []).
 
 %%====================================================================
@@ -65,26 +63,25 @@ start_link(FromRepoDirPath, ToRepoDirPath, DocDirPath, BlankAppIndexFilePath, Re
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([FromRepoDirPath, ToRepoDirPath, DocDirPath, BlankAppIndexFilePath, RenderedAppIndexFilePath, DocRoot]) ->
+init([FromRepoDirPath, ToRepoDirPath, DocDirPath, AppIndexFilePath, DocRoot]) ->
     {ok, Timeout} = gas:get_env(portius, inspection_frequency),
     ?INFO_MSG("initializing with:~n - from repo ~s~n - to repo ~s~n - doc path ~s~n - inspection frequency ~p~n" ++ 
-	      " - blank app index path ~s~n - rendered app index path ~s~n - web server doc root ~s~n",
-	      [FromRepoDirPath, ToRepoDirPath, DocDirPath, Timeout, BlankAppIndexFilePath, RenderedAppIndexFilePath, DocRoot]),
-    ok            = ewl_file:mkdir_p(DocDirPath),
-    ok            = ewl_file:mkdir_p(ToRepoDirPath),
+	      " - web server doc root ~s~n",
+	      [FromRepoDirPath, ToRepoDirPath, DocDirPath, Timeout, DocRoot]),
+    ok = ewl_file:mkdir_p(DocDirPath),
+    ok = ewl_file:mkdir_p(ToRepoDirPath),
     ?INFO_MSG("ensured that ~s and ~s are present~n", [DocDirPath, ToRepoDirPath]),
     ToTree        = por_file_tree:create_tree(ToRepoDirPath),
     ?INFO_MSG("created initial tree from ~s~n", [ToRepoDirPath]),
-    AIR = (catch por_template:create_app_index_page(BlankAppIndexFilePath, RenderedAppIndexFilePath, DocDirPath, DocRoot)),
+    AIR = (catch por_template:create_app_index_page(AppIndexFilePath, DocDirPath, DocRoot)),
     ?INFO_MSG("result of create app index page call ~p~n", [AIR]),
-    State = #state{from_repo                    = FromRepoDirPath, 
-		   to_repo                      = ToRepoDirPath, 
-		   doc_dir                      = DocDirPath, 
-		   inspection_frequency         = Timeout, 
-		   last_tree                    = ToTree,
-		   blank_app_index_file_path    = BlankAppIndexFilePath, 
-		   rendered_app_index_file_path = RenderedAppIndexFilePath,
-		   doc_root                     = DocRoot},
+    State = #state{from_repo            = FromRepoDirPath, 
+		   to_repo              = ToRepoDirPath, 
+		   doc_dir              = DocDirPath, 
+		   inspection_frequency = Timeout, 
+		   last_tree            = ToTree,
+		   app_index_file_path  = AppIndexFilePath, 
+		   doc_root             = DocRoot},
     {ok, State, Timeout}.
 
 %%--------------------------------------------------------------------
@@ -130,12 +127,11 @@ handle_cast(_Msg, State) ->
 %%--------------------------------------------------------------------
 handle_info(_Info, #state{from_repo = FR, to_repo = TR, inspection_frequency = Timeout, 
 			  last_tree = LastTree, doc_dir = DocDirPath,
-			  blank_app_index_file_path    = BlankAppIndexFilePath, 
-			  rendered_app_index_file_path = RenderedAppIndexFilePath, 
-			  doc_root                     = DocRoot} = State) ->
+			  app_index_file_path = AppIndexFilePath, 
+			  doc_root            = DocRoot} = State) ->
     Tree     = por_file_tree:create_tree(FR),
     TreeDiff = por_file_tree:find_additions(LastTree, Tree),
-    handle_transitions(TreeDiff, FR, TR, DocDirPath, BlankAppIndexFilePath, RenderedAppIndexFilePath, DocRoot),
+    handle_transitions(TreeDiff, FR, TR, DocDirPath, AppIndexFilePath, DocRoot),
     {noreply, State#state{last_tree = Tree}, Timeout}.
 
 
@@ -173,9 +169,9 @@ code_change(_OldVsn, State, _Extra) ->
 %% @doc handle the transitions of all packages from one repo to another
 %% @end
 %%--------------------------------------------------------------------
-handle_transitions([], _FromRepo, _ToRepo, _DocDirPath, _BlankAppIndexFilePath, _RenderedAppIndexFilePath, _DocRoot) ->
+handle_transitions([], _FromRepo, _ToRepo, _DocDirPath, _AppIndexFilePath, _DocRoot) ->
     ok;
-handle_transitions(TreeDiff, FromRepo, ToRepo, DocDirPath, BlankAppIndexFilePath, RenderedAppIndexFilePath, DocRoot) ->
+handle_transitions(TreeDiff, FromRepo, ToRepo, DocDirPath, AppIndexFilePath, DocRoot) ->
     ?INFO_MSG("tree diff ~p~ngoing to ~s~n", [TreeDiff, ToRepo]),
     NewFiles = lists:map(fun(Path) -> 
 				 {ok, {_, Rest}} = fs_lists:separate_by_token(Path, "/"),
@@ -188,7 +184,7 @@ handle_transitions(TreeDiff, FromRepo, ToRepo, DocDirPath, BlankAppIndexFilePath
 				  ok;
 			      _             -> 
 				  case catch handle_transition(FilePath, FromRepo, ToRepo, DocDirPath, 
-							       BlankAppIndexFilePath, RenderedAppIndexFilePath, DocRoot) of
+							       AppIndexFilePath, DocRoot) of
 				      ok    -> ok;
 				      Error -> ?ERROR_MSG("handle transition returned error ~p~n", [Error])
 				  end
@@ -200,7 +196,7 @@ handle_transitions(TreeDiff, FromRepo, ToRepo, DocDirPath, BlankAppIndexFilePath
 %% @doc handle the transition of a package from one repo to another
 %% @end
 %%--------------------------------------------------------------------
-handle_transition(PackageFileSuffix, FromRepo, ToRepo, DocDirPath, BlankAppIndexFilePath, RenderedAppIndexFilePath, DocRoot) ->
+handle_transition(PackageFileSuffix, FromRepo, ToRepo, DocDirPath, AppIndexFilePath, DocRoot) ->
     PackageFilePath = ewl_file:join_paths(FromRepo, PackageFileSuffix), 
     ?INFO_MSG("Transitioning ~s from ~s to ~s~n", [PackageFilePath, FromRepo, ToRepo]),
 
@@ -222,7 +218,7 @@ handle_transition(PackageFileSuffix, FromRepo, ToRepo, DocDirPath, BlankAppIndex
 	    case Side of
 		"lib" ->
 		    transition_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, 
-				   ToRepo, DocDirPath, BlankAppIndexFilePath, RenderedAppIndexFilePath, DocRoot);
+				   ToRepo, DocDirPath, AppIndexFilePath, DocRoot);
 		"releases" ->
 		    transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo)
 	    end
@@ -267,7 +263,7 @@ copy_over_erts(ErtsVsn, Area, FromRepo, ToRepo) ->
 %% @end
 %%--------------------------------------------------------------------
 transition_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, 
-	   ToRepo, DocDirPath, BlankAppIndexFilePath, RenderedAppIndexFilePath, DocRoot) ->
+	   ToRepo, DocDirPath, AppIndexFilePath, DocRoot) ->
     PackageSuffix     = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
     FromPackagePath   = ewl_file:join_paths(FromRepo, PackageSuffix),
     TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
@@ -276,8 +272,7 @@ transition_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo,
 	true ->
 	    %% @todo right now docs are optional - in the future we can email the package owner with a notification
 	    (catch build_app_docs(TmpPackageDirPath, DocDirPath, ErtsVsn)),
-	    AIR = (catch por_template:create_app_index_page(BlankAppIndexFilePath, RenderedAppIndexFilePath, 
-							    DocDirPath, DocRoot)),
+	    AIR = (catch por_template:create_app_index_page(AppIndexFilePath, DocDirPath, DocRoot)),
 	    ?INFO_MSG("result of creat app index page call ~p~n", [AIR]),
 	    copy_over_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
 	false ->

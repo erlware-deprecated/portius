@@ -15,7 +15,8 @@
 
 %% API
 -export([
-	 create_app_index_page/4
+	 create_app_index_page/2,
+	 create_app_index_page/3
 	]).
 
 -include("eunit.hrl").
@@ -29,43 +30,55 @@
 
 %%--------------------------------------------------------------------
 %% @doc Create app index file.
-%% @spec create_app_index_page(BlankAppIndexTemplateFilePath, RenderedAppIndexTemplateFilePath, DocRootDirPath, DocRoot) -> ok
+%% @spec create_app_index_page(IndexFilePath, ErlDocRootDirPath, DocRoot) -> ok
 %% where
-%%  BlankAppIndexTemplateFilePath = string()
-%%  RenderedAppIndexTemplateFilePath = string()
-%%  DocRootDirPath = string()
+%%  IndexFilePath = string()
+%%  ErlDocRootDirPath = string()
 %%  DocRoot = string()
 %% @end
 %%--------------------------------------------------------------------
-create_app_index_page(BlankAppIndexFilePath, RenderedAppIndexFilePath, DocRootDirPath, DocRoot) -> 
-    {ok, IndexTemplate} = get_index_template(BlankAppIndexFilePath),
-    {ok, PartTemplate}  = get_part_template(BlankAppIndexFilePath),
-    NewPage             = render_page(IndexTemplate, PartTemplate, gather_app_specs(DocRootDirPath), DocRoot),
+create_app_index_page(IndexFilePath, ErlDocRootDirPath, DocRoot) -> 
+    ewl_file:mkdir_p(ErlDocRootDirPath),
+    ErlAppDocRootDirPath = ewl_file:join_paths(ErlDocRootDirPath, "lib"),
+    ewl_file:mkdir_p(ErlAppDocRootDirPath),
+
+    {ok, IndexTemplate} = get_index_template(ErlAppDocRootDirPath),
+    {ok, PartTemplate}  = get_part_template(ErlAppDocRootDirPath),
+    NewPage             = render_page(IndexTemplate, PartTemplate, gather_app_specs(ErlAppDocRootDirPath), DocRoot),
     case NewPage of
 	NewPage when is_list(NewPage) -> 
 	    ?INFO_MSG("Page Rendered~n", []),
-	    {ok, IOD} = file:open(RenderedAppIndexFilePath, [write]),
+	    {ok, IOD} = file:open(IndexFilePath, [write]),
 	    ok = io:fwrite(IOD, "~s", [NewPage]);
 	Error ->
-	    ?ERROR_MSG("~p failed to render with ~p~n", [RenderedAppIndexFilePath, Error])
+	    ?ERROR_MSG("app src under ~p failed to render with ~p~n", [ErlAppDocRootDirPath, Error])
     end.
 
+%% @spec create_app_index_page(ErlDocRootDirPath, DocRoot) -> ok
+%% @equiv create_app_index_page(DefaultIndexFilePath, ErlDocRootDirPath, DocRoot)
+create_app_index_page(ErlDocRootDirPath, DocRoot) -> 
+    create_app_index_page(ewl_file:join_paths(ErlDocRootDirPath, "lib/index.html"), ErlDocRootDirPath, DocRoot).
+
+%%====================================================================
+%% Internal Functions
+%%====================================================================
 
 %%--------------------------------------------------------------------
 %% @private 
 %% @doc fetch the app index template. If it does not exist create it and then fetch it. 
 %% @end
 %%--------------------------------------------------------------------
-get_index_template(BlankAppIndexFilePath) ->
-    case sgte:compile_file(BlankAppIndexFilePath) of
+get_index_template(ErlAppDocRootDirPath) ->
+    SrcFilePath = ewl_file:join_paths(ErlAppDocRootDirPath, "index.src"),
+    case sgte:compile_file(SrcFilePath) of
 	{ok, _} = Resp -> 
 	    Resp;
 	{error, enoent} ->
-	    ?ERROR_MSG("Could not find blank app index file at ~s. Creating one~n", [BlankAppIndexFilePath]),
-	    {ok, IOD} = file:open(BlankAppIndexFilePath, [write]),
+	    ?ERROR_MSG("Could not find blank app index file at ~s. Creating one~n", [SrcFilePath]),
+	    {ok, IOD} = file:open(SrcFilePath, [write]),
 	    ok = io:fwrite(IOD, "~s", ["<html>\n <head></head>\n <body>\n  <h1>App Docs</h1>\n  <ul>\n" ++
 				       "$app_list$\n  </ul>\n <small>powered by Erlware Portius</small>\n </body>\n</html>"]),
-	    get_index_template(BlankAppIndexFilePath)
+	    get_index_template(ErlAppDocRootDirPath)
     end.
 
 %%--------------------------------------------------------------------
@@ -73,18 +86,18 @@ get_index_template(BlankAppIndexFilePath) ->
 %% @doc fetch the app part template. If it does not exist create it and then fetch it. 
 %% @end
 %%--------------------------------------------------------------------
-get_part_template(BlankAppIndexFilePath) ->
-    PartFilePath = ewl_file:join_paths(filename:dirname(BlankAppIndexFilePath), "app_index.part"),
+get_part_template(ErlAppDocRootDirPath) ->
+    PartFilePath = ewl_file:join_paths(ErlAppDocRootDirPath, "listing.part"),
     case sgte:compile_file(PartFilePath) of
 	{ok, _} = Resp -> 
 	    Resp;
 	{error, enoent} ->
-	    ?ERROR_MSG("Could not find app index .part file at ~s. Creating one~n", [PartFilePath]),
+	    ?ERROR_MSG("Could not find app listing .part file at ~s. Creating one~n", [PartFilePath]),
 	    {ok, IOD} = file:open(PartFilePath, [write]),
 	    ok = io:fwrite(IOD, "~s", ["<li>$appspec.name$ <a href=\"$appspec.path$\">$appspec.vsn$" ++ 
 				       "</a> (Erts: $appspec.erts_vsn$) "++
 				       "<br><small>Older Versions: $appspec.back_vsns$</small></li>"]),
-	    get_part_template(BlankAppIndexFilePath)
+	    get_part_template(ErlAppDocRootDirPath)
     end.
 
 %%--------------------------------------------------------------------
@@ -149,11 +162,11 @@ renderable_path(Path, DocRoot) ->
 %% @doc Fetch data about currently doc'd apps on the file system. Return a list of [{AppName, [{AppVsn, EtsVsn, AppDocPath}]}]
 %% @end
 %%--------------------------------------------------------------------
-gather_app_specs(DocRootDirPath) ->
+gather_app_specs(ErlAppDocRootDirPath) ->
     dict:to_list(lists:foldl(fun(ErtsDirPath, Dict) ->
 				     case filelib:is_dir(ErtsDirPath) of
 					 true ->
-					     AppPaths = filelib:wildcard(ewl_file:join_paths(ErtsDirPath, "lib/*")),
+					     AppPaths = filelib:wildcard(ewl_file:join_paths(ErtsDirPath, "*")),
 					     ErtsVsn  = filename:basename(ErtsDirPath),
 					     populate_dict(AppPaths, ErtsVsn, Dict);
 					 false ->
@@ -161,7 +174,7 @@ gather_app_specs(DocRootDirPath) ->
 				     end
 			     end,
 			     dict:new(),
-			     filelib:wildcard(ewl_file:join_paths(DocRootDirPath, "*")))).
+			     filelib:wildcard(ewl_file:join_paths(ErlAppDocRootDirPath, "*")))).
 
 populate_dict([AppPath|T], ErtsVsn, Dict) ->    
     try
@@ -174,8 +187,4 @@ populate_dict([AppPath|T], ErtsVsn, Dict) ->
     end;
 populate_dict([], _ErtsVsn, Dict) ->    
     Dict.
-
-%%====================================================================
-%% Test Functions
-%%====================================================================
 
