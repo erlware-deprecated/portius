@@ -66,11 +66,11 @@ init([]) ->
     {ok, ToFromList} = gas:get_env(portius, transitions),
     
     {ChildSpecs, _} = 
-	lists:foldl(fun({FromRepoDirPath, ToRepoDirPath, DocDirPath, AppIndexFilePath, DocRoot}, 
+	lists:foldl(fun({FromRepoDirPath, ToRepoDirPath, DocDirPath, AppIndexFilePath, ReleaseIndexFilePath, DocRoot}, 
 			{Specs, Count}) ->
 			    {[create_trans_server_child_spec(list_to_atom("s" ++ integer_to_list(Count)), 
 							     FromRepoDirPath, ToRepoDirPath, DocDirPath, 
-							     AppIndexFilePath, DocRoot)|Specs], 
+							     AppIndexFilePath, ReleaseIndexFilePath, DocRoot)|Specs], 
 			     Count + 1}
 		    end,
 		    {[], 1}, ToFromList),
@@ -87,9 +87,9 @@ init([]) ->
 %% @end
 %%--------------------------------------------------------------------
 create_trans_server_child_spec(Key, FromRepoDirPath, ToRepoDirPath, DocDirPath, 
-			       AppIndexFilePath, DocRoot) ->
+			       AppIndexFilePath, ReleaseIndexFilePath, DocRoot) ->
     create_trans_server_child_spec(Key, [FromRepoDirPath, ToRepoDirPath, DocDirPath, 
-					 AppIndexFilePath, DocRoot]). 
+					 AppIndexFilePath, ReleaseIndexFilePath, DocRoot]). 
 
 create_trans_server_child_spec(Key, Args) ->
     {Key,

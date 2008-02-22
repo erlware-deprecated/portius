@@ -11,7 +11,7 @@
 %%%                    ErtsVresion = string()
 %%% @end
 %%%-------------------------------------------------------------------
--module(por_template).
+-module(por_app_template).
 
 %% API
 -export([

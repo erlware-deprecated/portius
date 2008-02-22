@@ -5,7 +5,7 @@
   {description, "Manage the erlware repos"},
 
   % The version of the applicaton
-  {vsn, "0.4.0.0"},
+  {vsn, "0.4.1.0"},
 
   % All modules used by the application.
   {modules,
@@ -13,7 +13,7 @@
 	por_app,
 	por_sup,
 	por_file_tree,
-	por_template,
+	por_app_template,
 	por_trans_server
    ]},
 
