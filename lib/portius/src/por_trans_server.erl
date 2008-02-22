@@ -37,7 +37,7 @@
 %% @doc
 %% Starts the server
 %%
-%% @spec start_link(FromRepoDirPath, ToRepoDirPath, DocDirPath, AppIndexFilePath, DocRoot) -> 
+%% @spec start_link(FromRepoDirPath, ToRepoDirPath, DocDirPath, AppIndexFilePath, ReleaseIndexFilePath, DocRoot) -> 
 %%       {ok, Pid} | ignore | {error, Error}
 %% @end
 %%--------------------------------------------------------------------

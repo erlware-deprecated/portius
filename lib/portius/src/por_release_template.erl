@@ -15,6 +15,7 @@
 
 %% API
 -export([
+	 generate_release_doc/2,
 	 create_release_index_page/2,
 	 create_release_index_page/3
 	]).
@@ -30,14 +31,14 @@
 
 %%--------------------------------------------------------------------
 %% @doc Create release index file.
-%% @spec create_release_index_page(IndexFilePath, ErlDocRootDirPath, DocRoot) -> ok
+%% @spec generate_release_doc(RelDocDirPath, ErtsVsn) -> ok
 %% where
 %%  IndexFilePath = string()
 %%  ErlDocRootDirPath = string()
 %%  DocRoot = string()
 %% @end
 %%--------------------------------------------------------------------
-generate_release_doc(RelDocDirPath) -> 
+generate_release_doc(RelDocDirPath, ErtsVsn) -> 
     {ok, IndexTemplate} = get_index_template(ErlRelDocRootDirPath),
     {ok, PartTemplate}  = get_part_template(ErlRelDocRootDirPath),
     NewPage             = render_page(IndexTemplate, PartTemplate, gather_release_specs(ErlRelDocRootDirPath), DocRoot),
