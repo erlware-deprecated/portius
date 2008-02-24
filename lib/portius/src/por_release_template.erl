@@ -15,7 +15,7 @@
 
 %% API
 -export([
-	 generate_release_doc/2,
+	 generate_release_doc/3,
 	 create_release_index_page/2,
 	 create_release_index_page/3
 	]).
@@ -31,24 +31,34 @@
 
 %%--------------------------------------------------------------------
 %% @doc Create release index file.
-%% @spec generate_release_doc(RelDocDirPath, ErtsVsn) -> ok
+%% @spec generate_release_doc(RelDocBaseDirPath, RelDocDirPath, ErtsVsn) -> ok | {error, Reason}
 %% where
-%%  IndexFilePath = string()
-%%  ErlDocRootDirPath = string()
-%%  DocRoot = string()
+%%  RelDocBaseDirPath = string()
+%%  RelDocDirPath = string()
+%%  ErtsVsn = string()
 %% @end
 %%--------------------------------------------------------------------
-generate_release_doc(RelDocDirPath, ErtsVsn) -> 
-    {ok, IndexTemplate} = get_index_template(ErlRelDocRootDirPath),
-    {ok, PartTemplate}  = get_part_template(ErlRelDocRootDirPath),
-    NewPage             = render_page(IndexTemplate, PartTemplate, gather_release_specs(ErlRelDocRootDirPath), DocRoot),
-    case NewPage of
-	NewPage when is_list(NewPage) -> 
-	    ?INFO_MSG("Page Rendered~n", []),
-	    {ok, IOD} = file:open(IndexFilePath, [write]),
-	    ok = io:fwrite(IOD, "~s", [NewPage]);
-	Error ->
-	    ?ERROR_MSG("release src under ~p failed to render with ~p~n", [ErlRelDocRootDirPath, Error])
+generate_release_doc(RelDocBaseDirPath, RelDocDirPath, ErtsVsn) -> 
+    ControlFilePath = ewl_file:join_paths(RelDocDirPath, "control"),
+    {ok, IndexTemplate} = get_single_release_template(RelDocBaseDirPath),
+    try
+	true =  epkg_validation:is_valid_control_file(ControlFilePath),
+	Keys = [description, categories],
+	Attrs = [
+		 {erts_vsn, ErtsVsn}, 
+		 {name, filename:basename(RelDocDirPath)} |
+		 lists:zip(Keys, epkg_util:consult_control_file(Keys, ControlFilePath))],
+	?INFO_MSG("Attributes to render are ~p~n", [Attrs]),
+	NewPage = sgte:render_str(IndexTemplate, Attrs),
+	true = is_list(NewPage),
+	DocIndexFilePath = ewl_file:join_paths(RelDocDirPath, "index.html"),
+	{ok, IOD} = file:open(DocIndexFilePath, [write]),
+	ok = io:fwrite(IOD, "~s", [NewPage]),
+	?INFO_MSG("Page Rendered and written out to ~s~n", [DocIndexFilePath])
+    catch
+	_C:Error ->
+	    ?ERROR_MSG("release src under ~p failed to render with ~p~n", [RelDocDirPath, Error]),
+	    {error, {release_doc, Error}}
     end.
 
 %%--------------------------------------------------------------------
@@ -91,6 +101,37 @@ create_release_index_page(ErlDocRootDirPath, DocRoot) ->
 %% @doc fetch the release index template. If it does not exist create it and then fetch it. 
 %% @end
 %%--------------------------------------------------------------------
+get_single_release_template(RelDocBaseDirPath) ->
+    RelTemplateFilePath = ewl_file:join_paths(RelDocBaseDirPath, "single_release_doc_template.src"),
+    case sgte:compile_file(RelTemplateFilePath) of
+	{ok, _} = Resp -> 
+	    Resp;
+	{error, enoent} ->
+	    Page = join(
+		     ["<html>", 
+		      " <head></head>",
+		      " <body>",
+		      "  <h1>Rel Doc: $name$</h1>",
+		      "  <h2>Description:</h2><p>$description$</p>",
+		      "  <h2>Categories:</h2><p>$categories$</p>",
+		      "  <h2>Compiled for Erts version:</h2> $erts_vsn$",
+		      "  <small>Powered by Erlware Portius</small>",
+		      " </body>",
+		      "<html"],
+		     "\n"),
+	    ?ERROR_MSG("Could not find blank release template file at ~s. Creating one : ~p~n", [RelTemplateFilePath, Page]),
+	    
+	    {ok, IOD} = file:open(RelTemplateFilePath, [write]),
+	    ok = io:fwrite(IOD, "~s", [Page]),
+	    get_index_template(RelDocBaseDirPath)
+    end.
+
+
+%%--------------------------------------------------------------------
+%% @private 
+%% @doc fetch the release index template. If it does not exist create it and then fetch it. 
+%% @end
+%%--------------------------------------------------------------------
 get_index_template(ErlRelDocRootDirPath) ->
     SrcFilePath = ewl_file:join_paths(ErlRelDocRootDirPath, "index.src"),
     case sgte:compile_file(SrcFilePath) of
@@ -99,8 +140,16 @@ get_index_template(ErlRelDocRootDirPath) ->
 	{error, enoent} ->
 	    ?ERROR_MSG("Could not find blank release index file at ~s. Creating one~n", [SrcFilePath]),
 	    {ok, IOD} = file:open(SrcFilePath, [write]),
-	    ok = io:fwrite(IOD, "~s", ["<html>\n <head></head>\n <body>\n  <h1>Rel Docs</h1>\n  <ul>\n" ++
-				       "$release_list$\n  </ul>\n <small>powered by Erlware Portius</small>\n </body>\n</html>"]),
+	    Page = join(
+		     ["<html>", 
+		      " <head></head>",
+		      " <body>",
+		      "  $release_list$",
+		      "  <small>Powered by Erlware Portius</small>",
+		      " </body>",
+		      "<html"],
+		     "\n"),
+	    ok = io:fwrite(IOD, "~s", [Page]),
 	    get_index_template(ErlRelDocRootDirPath)
     end.
 
@@ -211,3 +260,9 @@ populate_dict([RelPath|T], ErtsVsn, Dict) ->
 populate_dict([], _ErtsVsn, Dict) ->    
     Dict.
 
+join([H], _Separator) ->
+    H;
+join([H|T], Separator) ->
+    lists:flatten([H, Separator, join(T, Separator)]);
+join([], _Separator) ->
+    [].

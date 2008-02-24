@@ -323,7 +323,7 @@ transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRep
     case epkg_validation:is_package_a_release(TmpPackageDirPath) of
 	true ->
 	    build_release_docs(TmpPackageDirPath, DocDirPath, ErtsVsn),
-	    RIR = (catch por_template:create_app_index_page(ReleaseIndexFilePath, DocDirPath, DocRoot)),
+	    RIR = (catch por_template:create_release_index_page(ReleaseIndexFilePath, DocDirPath, DocRoot)),
 	    ?INFO_MSG("result of create release index page call ~p~n", [RIR]),
 	    copy_over_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
 	false ->
@@ -390,11 +390,12 @@ build_release_docs(PackageDirPath, DocDirPath, ErtsVsn) ->
     ControlFilePath = ewl_file:join_paths(PackageDirPath, "control"),
     case filelib:is_file(PackageDirPath) of
 	true -> 
-	    RelDocDirPath = ewl_file:join_paths(ewl_file:join_paths(DocDirPath, "releases"), RelName ++ "-" ++ RelVsn),
+	    RelDocBaseDirPath = ewl_file:join_paths(DocDirPath, "releases"),
+	    RelDocDirPath = ewl_file:join_paths(RelDocBaseDirPath, RelName ++ "-" ++ RelVsn),
 	    ewl_file:mkdir_p(RelDocDirPath),
 	    ?INFO_MSG("copy doc dir from ~s to ~s~n", [ControlFilePath, RelDocDirPath]),
-	    file:copy(ControlFilePath, RelDocDirPath),
-	    por_release_template:generate_release_doc(RelDocDirPath, ErtsVsn);
+	    file:copy(ControlFilePath, ewl_file:join_paths(RelDocDirPath, "control")),
+	    por_release_template:generate_release_doc(RelDocBaseDirPath, RelDocDirPath, ErtsVsn);
 	false  -> 
 	    ?ERROR_MSG("doc failed for ~s-~s because the release has no control file~n", [RelName, RelVsn]),
 	    {error, {doc_failed, RelName, RelVsn}}
