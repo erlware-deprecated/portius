@@ -11,7 +11,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/6]).
+-export([start_link/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -21,14 +21,19 @@
 
 -define(SERVER, ?MODULE). 
 
--record(state, {from_repo, 
-		to_repo, 
-		doc_dir, 
-		inspection_frequency, 
-		last_tree = {}, 
-		app_index_file_path, 
-		release_index_file_path,
-	        doc_root}).
+-record(state, {transition_spec, doc_spec, inspection_frequency, last_tree}).
+
+-record(transition_spec, {transition_id, from_repo, to_repo}).
+
+-record(doc_spec, {
+	  transition_id,
+	  webserver_doc_root,
+	  generated_docs_base_dir,
+	  app_index_file_src,
+	  app_index_file,
+	  release_index_file_src,
+	  release_index_file
+	 }).
 
 %%====================================================================
 %% API
@@ -37,18 +42,12 @@
 %% @doc
 %% Starts the server
 %%
-%% @spec start_link(FromRepoDirPath, ToRepoDirPath, DocDirPath, AppIndexFilePath, ReleaseIndexFilePath, DocRoot) -> 
+%% @spec start_link(TransitionId::atom(), FromRepoDirPath, ToRepoDirPath) -> 
 %%       {ok, Pid} | ignore | {error, Error}
 %% @end
 %%--------------------------------------------------------------------
-start_link(FromRepoDirPath, ToRepoDirPath, DocDirPath, AppIndexFilePath, ReleaseIndexFilePath, DocRoot) ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, 
-			  [FromRepoDirPath, 
-			   ToRepoDirPath, 
-			   DocDirPath, 
-			   AppIndexFilePath, 
-			   ReleaseIndexFilePath, 
-			   DocRoot], []).
+start_link(TransitionId, FromRepoDirPath, ToRepoDirPath) ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [TransitionId, FromRepoDirPath, ToRepoDirPath], []).
 
 %%====================================================================
 %% gen_server callbacks
@@ -65,26 +64,36 @@ start_link(FromRepoDirPath, ToRepoDirPath, DocDirPath, AppIndexFilePath, Release
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([FromRepoDirPath, ToRepoDirPath, DocDirPath, AppIndexFilePath, ReleaseIndexFilePath, DocRoot]) ->
+init([TransitionId, FromRepoDirPath, ToRepoDirPath]) ->
     {ok, Timeout} = gas:get_env(portius, inspection_frequency),
-    ?INFO_MSG("initializing with:~n - from repo ~s~n - to repo ~s~n - doc path ~s~n - inspection frequency ~p~n" ++ 
-	      " - web server doc root ~s~n",
-	      [FromRepoDirPath, ToRepoDirPath, DocDirPath, Timeout, DocRoot]),
-    ok = ewl_file:mkdir_p(DocDirPath),
     ok = ewl_file:mkdir_p(ToRepoDirPath),
-    ?INFO_MSG("ensured that ~s and ~s are present~n", [DocDirPath, ToRepoDirPath]),
-    ToTree        = por_file_tree:create_tree(ToRepoDirPath),
+    ToTree = por_file_tree:create_tree(ToRepoDirPath),
     ?INFO_MSG("created initial tree from ~s~n", [ToRepoDirPath]),
+
+    TransitionSpec = #transition_spec{transition_id = TransitionId,
+				      from_repo     = FromRepoDirPath, 
+				      to_repo       = ToRepoDirPath
+				     },
+
+    DocSpec = fetch_doc_specs(TransitionId),
+							     
+    #doc_spec{webserver_doc_root      = DocRoot,
+	      generated_docs_base_dir = DocDirPath,
+	      app_index_file          = AppIndexFilePath,
+	      release_index_file      = ReleaseIndexFilePath} = DocSpec,
+		    
+    ok = ewl_file:mkdir_p(DocDirPath),
+
     AIR = (catch por_app_template:create_app_index_page(AppIndexFilePath, DocDirPath, DocRoot)),
+    RIR = (catch por_release_template:create_release_index_page(ReleaseIndexFilePath, DocDirPath, DocRoot)),
     ?INFO_MSG("result of create app index page call ~p~n", [AIR]),
-    State = #state{from_repo                = FromRepoDirPath, 
-		   to_repo                  = ToRepoDirPath, 
-		   doc_dir                  = DocDirPath, 
-		   inspection_frequency     = Timeout, 
-		   last_tree                = ToTree,
-		   app_index_file_path      = AppIndexFilePath, 
-		   release_index_file_path  = ReleaseIndexFilePath, 
-		   doc_root                 = DocRoot},
+    ?INFO_MSG("result of create release index page call ~p~n", [RIR]),
+
+    State = #state{transition_spec      = TransitionSpec, 
+		   doc_spec             = DocSpec, 
+		   inspection_frequency = Timeout, 
+		   last_tree            = ToTree},
+
     {ok, State, Timeout}.
 
 %%--------------------------------------------------------------------
@@ -129,14 +138,18 @@ handle_cast(_Msg, State) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_info(_Info, State) ->
-    #state{from_repo               = FR,
-	   to_repo                 = TR,
-	   inspection_frequency    = Timeout, 
-	   last_tree               = LastTree,
-	   doc_dir                 = DocDirPath,
-	   app_index_file_path     = AppIndexFilePath, 
-	   release_index_file_path = ReleaseIndexFilePath, 
-	   doc_root                = DocRoot} = State,
+    #state{transition_spec      = TransitionSpec, 
+	   doc_spec             = DocSpec, 
+	   inspection_frequency = Timeout, 
+	   last_tree            = LastTree} = State,
+
+    #transition_spec{from_repo = FR,
+		     to_repo   = TR} = TransitionSpec,
+
+    #doc_spec{generated_docs_base_dir = DocDirPath,
+	      app_index_file          = AppIndexFilePath, 
+	      release_index_file      = ReleaseIndexFilePath, 
+	      webserver_doc_root      = DocRoot} = DocSpec,
     
     Tree     = por_file_tree:create_tree(FR),
     TreeDiff = por_file_tree:find_additions(LastTree, Tree),
@@ -281,7 +294,7 @@ transition_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, T
 	true ->
 	    %% @todo right now docs are optional - in the future we can email the package owner with a notification
 	    (catch build_app_docs(TmpPackageDirPath, DocDirPath, ErtsVsn)),
-	    AIR = (catch por_template:create_app_index_page(AppIndexFilePath, DocDirPath, DocRoot)),
+	    AIR = (catch por_app_template:create_app_index_page(AppIndexFilePath, DocDirPath, DocRoot)),
 	    ?INFO_MSG("result of create app index page call ~p~n", [AIR]),
 	    copy_over_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
 	false ->
@@ -323,7 +336,7 @@ transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRep
     case epkg_validation:is_package_a_release(TmpPackageDirPath) of
 	true ->
 	    build_release_docs(TmpPackageDirPath, DocDirPath, ErtsVsn),
-	    RIR = (catch por_template:create_release_index_page(ReleaseIndexFilePath, DocDirPath, DocRoot)),
+	    RIR = (catch por_release_template:create_release_index_page(ReleaseIndexFilePath, DocDirPath, DocRoot)),
 	    ?INFO_MSG("result of create release index page call ~p~n", [RIR]),
 	    copy_over_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
 	false ->
@@ -388,7 +401,7 @@ build_app_docs(PackageDirPath, DocDirPath, ErtsVsn) ->
 build_release_docs(PackageDirPath, DocDirPath, ErtsVsn) ->
     {ok, {RelName, RelVsn}} = epkg_installed_paths:package_dir_to_name_and_vsn(PackageDirPath),
     ControlFilePath = ewl_file:join_paths(PackageDirPath, "control"),
-    case filelib:is_file(PackageDirPath) of
+    case filelib:is_file(ControlFilePath) of
 	true -> 
 	    RelDocBaseDirPath = ewl_file:join_paths(DocDirPath, "releases"),
 	    RelDocDirPath = ewl_file:join_paths(RelDocBaseDirPath, RelName ++ "-" ++ RelVsn),
@@ -403,3 +416,27 @@ build_release_docs(PackageDirPath, DocDirPath, ErtsVsn) ->
 	    
 
     
+%%--------------------------------------------------------------------
+%% @private
+%% @doc fetch doc specs from config.  Returns doc_spec record or undefined.
+%% @end
+%%--------------------------------------------------------------------
+fetch_doc_specs(TransitionId) ->
+    case gas:get_env(portius, doc_specs) of
+	{ok, DocSpecs} ->
+	    case lists:keysearch(TransitionId, 1, DocSpecs) of
+		{value, {TransitionId, W, G, Asrc, A, Rsrc, R}} ->
+		    #doc_spec{transition_id           = TransitionId,
+			      webserver_doc_root      = W,
+			      generated_docs_base_dir = G,
+			      app_index_file_src      = Asrc,
+			      app_index_file          = A,
+			      release_index_file_src  = Rsrc,
+			      release_index_file      = R
+			     };
+		_ ->
+		    undefined
+	    end;
+	_ ->
+	    undefined
+    end.

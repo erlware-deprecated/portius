@@ -76,8 +76,18 @@ get_index_template(ErlAppDocRootDirPath) ->
 	{error, enoent} ->
 	    ?ERROR_MSG("Could not find blank app index file at ~s. Creating one~n", [SrcFilePath]),
 	    {ok, IOD} = file:open(SrcFilePath, [write]),
-	    ok = io:fwrite(IOD, "~s", ["<html>\n <head></head>\n <body>\n  <h1>App Docs</h1>\n  <ul>\n" ++
-				       "$app_list$\n  </ul>\n <small>powered by Erlware Portius</small>\n </body>\n</html>"]),
+	    Page = join(
+		     ["<html>", 
+		      " <head><title>Erlware Erlang/OTP Application Documentation</title></head>",
+		      " <body>",
+		      "  <h1>Erlware Erlang/OTP Application Documentation</h1>",
+		      "  $app_list$",
+		      "  <br/><hr/><small>Powered by Erlware Portius</small>",
+		      " </body>",
+		      "</html>"],
+		     "\n"),
+	    ?ERROR_MSG("Could not find blank release template file at ~s. Creating one : ~p~n", [SrcFilePath, Page]),
+	    ok = io:fwrite(IOD, "~s", [Page]),
 	    get_index_template(ErlAppDocRootDirPath)
     end.
 
@@ -94,9 +104,13 @@ get_part_template(ErlAppDocRootDirPath) ->
 	{error, enoent} ->
 	    ?ERROR_MSG("Could not find app listing .part file at ~s. Creating one~n", [PartFilePath]),
 	    {ok, IOD} = file:open(PartFilePath, [write]),
-	    ok = io:fwrite(IOD, "~s", ["<li>$appspec.name$ <a href=\"$appspec.path$\">$appspec.vsn$" ++ 
-				       "</a> (Erts: $appspec.erts_vsn$) "++
-				       "<br><small>Older Versions: $appspec.back_vsns$</small></li>"]),
+	    Page = join(
+		     ["<li>", 
+		      " $appspec.name$ <a href=\"$appspec.path$\">$appspec.vsn$</a> (Erts: $appspec.erts_vsn$) ",
+		      " <br><small>Older Versions: $appspec.back_vsns$</small><br/><br/>",
+		      "</li>"],
+		     "\n"),
+	    ok = io:fwrite(IOD, "~s", [Page]),
 	    get_part_template(ErlAppDocRootDirPath)
     end.
 
@@ -188,3 +202,12 @@ populate_dict([AppPath|T], ErtsVsn, Dict) ->
 populate_dict([], _ErtsVsn, Dict) ->    
     Dict.
 
+
+join([H], _Separator) when is_list(H) ->
+    H;
+join([H|T], Separator) when is_atom(H) ->
+    join([atom_to_list(H)|T], Separator);
+join([H|T], Separator) ->
+    lists:flatten([H, Separator, join(T, Separator)]);
+join([], _Separator) ->
+    [].

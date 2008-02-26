@@ -31,23 +31,24 @@
 
 %%--------------------------------------------------------------------
 %% @doc Create release index file.
-%% @spec generate_release_doc(RelDocBaseDirPath, RelDocDirPath, ErtsVsn) -> ok | {error, Reason}
+%% @spec generate_release_doc(RelDocRootDirPath, RelDocDirPath, ErtsVsn) -> ok | {error, Reason}
 %% where
-%%  RelDocBaseDirPath = string()
+%%  RelDocRootDirPath = string()
 %%  RelDocDirPath = string()
 %%  ErtsVsn = string()
 %% @end
 %%--------------------------------------------------------------------
-generate_release_doc(RelDocBaseDirPath, RelDocDirPath, ErtsVsn) -> 
+generate_release_doc(RelDocRootDirPath, RelDocDirPath, ErtsVsn) -> 
     ControlFilePath = ewl_file:join_paths(RelDocDirPath, "control"),
-    {ok, IndexTemplate} = get_single_release_template(RelDocBaseDirPath),
+    {ok, IndexTemplate} = get_single_release_template(RelDocRootDirPath),
     try
 	true =  epkg_validation:is_valid_control_file(ControlFilePath),
-	Keys = [description, categories],
 	Attrs = [
 		 {erts_vsn, ErtsVsn}, 
-		 {name, filename:basename(RelDocDirPath)} |
-		 lists:zip(Keys, epkg_util:consult_control_file(Keys, ControlFilePath))],
+		 {name, filename:basename(RelDocDirPath)},
+		 {description, epkg_util:consult_control_file(description, ControlFilePath)},
+		 {categories, join(epkg_util:consult_control_file(categories, ControlFilePath), ", ")}
+		],
 	?INFO_MSG("Attributes to render are ~p~n", [Attrs]),
 	NewPage = sgte:render_str(IndexTemplate, Attrs),
 	true = is_list(NewPage),
@@ -71,26 +72,25 @@ generate_release_doc(RelDocBaseDirPath, RelDocDirPath, ErtsVsn) ->
 %% @end
 %%--------------------------------------------------------------------
 create_release_index_page(IndexFilePath, ErlDocRootDirPath, DocRoot) -> 
-    ewl_file:mkdir_p(ErlDocRootDirPath),
-    ErlRelDocRootDirPath = ewl_file:join_paths(ErlDocRootDirPath, "lib"),
-    ewl_file:mkdir_p(ErlRelDocRootDirPath),
+    RelDocRootDirPath = ewl_file:join_paths(ErlDocRootDirPath, "releases"),
+    ewl_file:mkdir_p(RelDocRootDirPath),
 
-    {ok, IndexTemplate} = get_index_template(ErlRelDocRootDirPath),
-    {ok, PartTemplate}  = get_part_template(ErlRelDocRootDirPath),
-    NewPage             = render_page(IndexTemplate, PartTemplate, gather_release_specs(ErlRelDocRootDirPath), DocRoot),
+    {ok, IndexTemplate} = get_index_template(RelDocRootDirPath),
+    {ok, PartTemplate}  = get_part_template(RelDocRootDirPath),
+    NewPage             = render_page(IndexTemplate, PartTemplate, gather_release_specs(RelDocRootDirPath), DocRoot),
     case NewPage of
 	NewPage when is_list(NewPage) -> 
 	    ?INFO_MSG("Page Rendered~n", []),
 	    {ok, IOD} = file:open(IndexFilePath, [write]),
 	    ok = io:fwrite(IOD, "~s", [NewPage]);
 	Error ->
-	    ?ERROR_MSG("release src under ~p failed to render with ~p~n", [ErlRelDocRootDirPath, Error])
+	    ?ERROR_MSG("release src under ~p failed to render with ~p~n", [RelDocRootDirPath, Error])
     end.
 
 %% @spec create_release_index_page(ErlDocRootDirPath, DocRoot) -> ok
 %% @equiv create_release_index_page(DefaultIndexFilePath, ErlDocRootDirPath, DocRoot)
 create_release_index_page(ErlDocRootDirPath, DocRoot) -> 
-    create_release_index_page(ewl_file:join_paths(ErlDocRootDirPath, "lib/index.html"), ErlDocRootDirPath, DocRoot).
+    create_release_index_page(ewl_file:join_paths(ErlDocRootDirPath, "releases/index.html"), ErlDocRootDirPath, DocRoot).
 
 %%====================================================================
 %% Internal Functions
@@ -101,29 +101,29 @@ create_release_index_page(ErlDocRootDirPath, DocRoot) ->
 %% @doc fetch the release index template. If it does not exist create it and then fetch it. 
 %% @end
 %%--------------------------------------------------------------------
-get_single_release_template(RelDocBaseDirPath) ->
-    RelTemplateFilePath = ewl_file:join_paths(RelDocBaseDirPath, "single_release_doc_template.src"),
+get_single_release_template(RelDocRootDirPath) ->
+    RelTemplateFilePath = ewl_file:join_paths(RelDocRootDirPath, "single_release_doc_template.src"),
     case sgte:compile_file(RelTemplateFilePath) of
 	{ok, _} = Resp -> 
 	    Resp;
 	{error, enoent} ->
 	    Page = join(
 		     ["<html>", 
-		      " <head></head>",
+		      " <head><title>$name$ Erlang/OTP Release Documentation</title></head>",
 		      " <body>",
-		      "  <h1>Rel Doc: $name$</h1>",
-		      "  <h2>Description:</h2><p>$description$</p>",
-		      "  <h2>Categories:</h2><p>$categories$</p>",
-		      "  <h2>Compiled for Erts version:</h2> $erts_vsn$",
-		      "  <small>Powered by Erlware Portius</small>",
+		      "  <h1>$name$ Erlang/OTP Release Documentation</h1>",
+		      "  <strong>Description:</strong><p>$description$</p>",
+		      "  <strong>Categories:</strong><p>$categories$</p>",
+		      "  <strong>Compiled for Erts version:</strong> $erts_vsn$",
+		      "  <br/><small>Powered by Erlware Portius</small>",
 		      " </body>",
-		      "<html"],
+		      "</html>"],
 		     "\n"),
 	    ?ERROR_MSG("Could not find blank release template file at ~s. Creating one : ~p~n", [RelTemplateFilePath, Page]),
 	    
 	    {ok, IOD} = file:open(RelTemplateFilePath, [write]),
 	    ok = io:fwrite(IOD, "~s", [Page]),
-	    get_index_template(RelDocBaseDirPath)
+	    get_index_template(RelDocRootDirPath)
     end.
 
 
@@ -132,8 +132,8 @@ get_single_release_template(RelDocBaseDirPath) ->
 %% @doc fetch the release index template. If it does not exist create it and then fetch it. 
 %% @end
 %%--------------------------------------------------------------------
-get_index_template(ErlRelDocRootDirPath) ->
-    SrcFilePath = ewl_file:join_paths(ErlRelDocRootDirPath, "index.src"),
+get_index_template(RelDocRootDirPath) ->
+    SrcFilePath = ewl_file:join_paths(RelDocRootDirPath, "index.src"),
     case sgte:compile_file(SrcFilePath) of
 	{ok, _} = Resp -> 
 	    Resp;
@@ -142,15 +142,16 @@ get_index_template(ErlRelDocRootDirPath) ->
 	    {ok, IOD} = file:open(SrcFilePath, [write]),
 	    Page = join(
 		     ["<html>", 
-		      " <head></head>",
+		      " <head><title>Erlware Erlang/OTP Release Listing</title></head>",
 		      " <body>",
+		      "  <h1>Erlware Erlang/OTP Release Listing</h1>",
 		      "  $release_list$",
-		      "  <small>Powered by Erlware Portius</small>",
+		      "  <br/><small>Powered by Erlware Portius</small>",
 		      " </body>",
-		      "<html"],
+		      "</html>"],
 		     "\n"),
 	    ok = io:fwrite(IOD, "~s", [Page]),
-	    get_index_template(ErlRelDocRootDirPath)
+	    get_index_template(RelDocRootDirPath)
     end.
 
 %%--------------------------------------------------------------------
@@ -158,18 +159,22 @@ get_index_template(ErlRelDocRootDirPath) ->
 %% @doc fetch the release part template. If it does not exist create it and then fetch it. 
 %% @end
 %%--------------------------------------------------------------------
-get_part_template(ErlRelDocRootDirPath) ->
-    PartFilePath = ewl_file:join_paths(ErlRelDocRootDirPath, "listing.part"),
+get_part_template(RelDocRootDirPath) ->
+    PartFilePath = ewl_file:join_paths(RelDocRootDirPath, "listing.part"),
     case sgte:compile_file(PartFilePath) of
 	{ok, _} = Resp -> 
 	    Resp;
 	{error, enoent} ->
 	    ?ERROR_MSG("Could not find release listing .part file at ~s. Creating one~n", [PartFilePath]),
 	    {ok, IOD} = file:open(PartFilePath, [write]),
-	    ok = io:fwrite(IOD, "~s", ["<li>$releasespec.name$ <a href=\"$releasespec.path$\">$releasespec.vsn$" ++ 
-				       "</a> (Erts: $releasespec.erts_vsn$) "++
-				       "<br><small>Older Versions: $releasespec.back_vsns$</small></li>"]),
-	    get_part_template(ErlRelDocRootDirPath)
+	    Page = join(
+		     ["<li>", 
+		      " $releasespec.name$ <a href=\"$releasespec.path$\">$releasespec.vsn$</a><br/>",
+		      " <small>Older Versions: $releasespec.back_vsns$</small><br/><br/>",
+		      "</li>"],
+		     "\n"),
+	    ok = io:fwrite(IOD, "~s", [Page]),
+	    get_part_template(RelDocRootDirPath)
     end.
 
 %%--------------------------------------------------------------------
@@ -187,19 +192,18 @@ create_renderable_specs(Specs, DocRoot) ->
 	       end, lists:flatten(massage_release_specs(Specs, DocRoot))).
 
 massage_release_specs([{RelName, Attributes}|T], DocRoot) ->
-    [{HighRelVsn, HighErtsVsn, HighRelPath}|AggregatedAttributes] = group_erts_vsns(sort_by_version(Attributes)),
+    [{HighRelVsn, HighRelPath}|AggregatedAttributes] = sort_by_version(Attributes),
 
     SpecList = [
 		{name, RelName}, 
 		{vsn, HighRelVsn}, 
-		{erts_vsn, HighErtsVsn}, 
 		{path, renderable_path(HighRelPath, DocRoot)}
 	       ],
 
     Links = 
 	lists:flatten(
 	  lists:sublist(
-	    lists:map(fun({RelVsn, _ErtsVsn, RelPath}) -> 
+	    lists:map(fun({RelVsn, RelPath}) -> 
 			      lists:flatten([" <a href=\"", renderable_path(RelPath, DocRoot),"\">", RelVsn, "</a> |"]) 
 		      end, 
 		      AggregatedAttributes), ?VERSION_HISTORY_DEPTH)),
@@ -213,16 +217,6 @@ massage_release_specs([{RelName, Attributes}|T], DocRoot) ->
 massage_release_specs([], _DocRoot) ->
     [].
 
-group_erts_vsns(Attributes) -> lists:reverse(group_erts_vsns(Attributes, [])).
-
-group_erts_vsns([{RelVsn, ErtsVsn, _}|T], [{RelVsn, ErtsVsns, RelPath}|AccT]) ->
-    group_erts_vsns(T, [{RelVsn, lists:flatten([ErtsVsns, ", ", ErtsVsn]), RelPath}|AccT]);
-group_erts_vsns([H|T], Acc) ->
-    group_erts_vsns(T, [H|Acc]);
-group_erts_vsns([], Acc) ->
-    Acc.
-    
-    
 sort_by_version(Attributes) ->
     lists:sort(fun(A1, A2) -> ewr_util:is_version_greater(element(1, A1), element(1, A2)) end, Attributes).
     
@@ -234,34 +228,32 @@ renderable_path(Path, DocRoot) ->
 %% @doc Fetch data about currently doc'd releases on the file system. Return a list of [{RelName, [{RelVsn, EtsVsn, RelDocPath}]}]
 %% @end
 %%--------------------------------------------------------------------
-gather_release_specs(ErlRelDocRootDirPath) ->
-    dict:to_list(lists:foldl(fun(ErtsDirPath, Dict) ->
-				     case filelib:is_dir(ErtsDirPath) of
-					 true ->
-					     RelPaths = filelib:wildcard(ewl_file:join_paths(ErtsDirPath, "*")),
-					     ErtsVsn  = filename:basename(ErtsDirPath),
-					     populate_dict(RelPaths, ErtsVsn, Dict);
-					 false ->
-					     Dict
-				     end
-			     end,
-			     dict:new(),
-			     filelib:wildcard(ewl_file:join_paths(ErlRelDocRootDirPath, "*")))).
+gather_release_specs(RelDocRootDirPath) ->
+    RelPaths = filelib:wildcard(ewl_file:join_paths(RelDocRootDirPath, "*")),
+    dict:to_list(populate_dict(RelPaths, dict:new())).
+			    
 
-populate_dict([RelPath|T], ErtsVsn, Dict) ->    
-    try
-	{ok, {RelName, RelVsn}} = epkg_installed_paths:package_dir_to_name_and_vsn(RelPath),
-	populate_dict(T, ErtsVsn,  dict:releaseend(RelName, {RelVsn, ErtsVsn, RelPath}, Dict))
-    catch 
-	_C:_E ->
-	    ?ERROR_MSG("failed on ~p~n", [RelPath]),
-	    populate_dict(T, ErtsVsn,  Dict)
+populate_dict([RelPath|T], Dict) ->    
+    case filelib:is_dir(RelPath) of
+	true -> 
+	    try
+		{ok, {RelName, RelVsn}} = epkg_installed_paths:package_dir_to_name_and_vsn(RelPath),
+		populate_dict(T, dict:append(RelName, {RelVsn, RelPath}, Dict))
+	    catch 
+		_C:_E ->
+		    ?ERROR_MSG("failed on ~p~n", [RelPath]),
+		    populate_dict(T, Dict)
+	    end;
+	false ->
+	    populate_dict(T, Dict)
     end;
-populate_dict([], _ErtsVsn, Dict) ->    
+populate_dict([], Dict) ->    
     Dict.
 
-join([H], _Separator) ->
+join([H], _Separator) when is_list(H) ->
     H;
+join([H|T], Separator) when is_atom(H) ->
+    join([atom_to_list(H)|T], Separator);
 join([H|T], Separator) ->
     lists:flatten([H, Separator, join(T, Separator)]);
 join([], _Separator) ->
