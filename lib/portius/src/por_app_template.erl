@@ -15,12 +15,12 @@
 
 %% API
 -export([
-	 create_app_index_page/2,
-	 create_app_index_page/3
+	 create_app_index_page/1
 	]).
 
 -include("eunit.hrl").
 -include("macros.hrl").
+-include("portius.hrl").
 
 -define(VERSION_HISTORY_DEPTH, 5).
 
@@ -30,19 +30,21 @@
 
 %%--------------------------------------------------------------------
 %% @doc Create app index file.
-%% @spec create_app_index_page(IndexFilePath, ErlDocRootDirPath, DocRoot) -> ok
+%% @spec create_app_index_page(DocSpec) -> ok
 %% where
-%%  IndexFilePath = string()
-%%  ErlDocRootDirPath = string()
-%%  DocRoot = string()
+%%  DocSpec = record()
 %% @end
 %%--------------------------------------------------------------------
-create_app_index_page(IndexFilePath, ErlDocRootDirPath, DocRoot) -> 
+create_app_index_page(DocSpec) -> 
+    #doc_spec{webserver_doc_root      = DocRoot,
+	      generated_docs_base_dir = ErlDocRootDirPath,
+	      app_index_file          = IndexFilePath} = DocSpec,
+		    
     ewl_file:mkdir_p(ErlDocRootDirPath),
     ErlAppDocRootDirPath = ewl_file:join_paths(ErlDocRootDirPath, "lib"),
     ewl_file:mkdir_p(ErlAppDocRootDirPath),
 
-    {ok, IndexTemplate} = get_index_template(ErlAppDocRootDirPath),
+    {ok, IndexTemplate} = get_index_template(DocSpec),
     {ok, PartTemplate}  = get_part_template(ErlAppDocRootDirPath),
     NewPage             = render_page(IndexTemplate, PartTemplate, gather_app_specs(ErlAppDocRootDirPath), DocRoot),
     case NewPage of
@@ -54,11 +56,6 @@ create_app_index_page(IndexFilePath, ErlDocRootDirPath, DocRoot) ->
 	    ?ERROR_MSG("app src under ~p failed to render with ~p~n", [ErlAppDocRootDirPath, Error])
     end.
 
-%% @spec create_app_index_page(ErlDocRootDirPath, DocRoot) -> ok
-%% @equiv create_app_index_page(DefaultIndexFilePath, ErlDocRootDirPath, DocRoot)
-create_app_index_page(ErlDocRootDirPath, DocRoot) -> 
-    create_app_index_page(ewl_file:join_paths(ErlDocRootDirPath, "lib/index.html"), ErlDocRootDirPath, DocRoot).
-
 %%====================================================================
 %% Internal Functions
 %%====================================================================
@@ -68,8 +65,18 @@ create_app_index_page(ErlDocRootDirPath, DocRoot) ->
 %% @doc fetch the app index template. If it does not exist create it and then fetch it. 
 %% @end
 %%--------------------------------------------------------------------
-get_index_template(ErlAppDocRootDirPath) ->
-    SrcFilePath = ewl_file:join_paths(ErlAppDocRootDirPath, "index.src"),
+get_index_template(#doc_spec{app_index_file_src = IndexFilePath, app_index_file = IndexFilePath}) ->
+    IndexSrcFilePath = IndexFilePath ++ ".src",
+    case {filelib:is_file(IndexFilePath), filelib:is_file(IndexSrcFilePath)} of
+	{true, false} -> 
+	    file:copy(IndexFilePath, IndexSrcFilePath);
+	{_, _} ->
+	    ok
+    end,
+    get_index_template(IndexSrcFilePath);
+get_index_template(#doc_spec{app_index_file_src = IndexSrcFilePath}) ->
+    get_index_template(IndexSrcFilePath);
+get_index_template(SrcFilePath) ->
     case sgte:compile_file(SrcFilePath) of
 	{ok, _} = Resp -> 
 	    Resp;
@@ -88,7 +95,7 @@ get_index_template(ErlAppDocRootDirPath) ->
 		     "\n"),
 	    ?ERROR_MSG("Could not find blank release template file at ~s. Creating one : ~p~n", [SrcFilePath, Page]),
 	    ok = io:fwrite(IOD, "~s", [Page]),
-	    get_index_template(ErlAppDocRootDirPath)
+	    get_index_template(SrcFilePath)
     end.
 
 %%--------------------------------------------------------------------

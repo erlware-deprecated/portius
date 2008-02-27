@@ -18,22 +18,13 @@
 	 terminate/2, code_change/3]).
 
 -include("macros.hrl").
+-include("portius.hrl").
 
 -define(SERVER, ?MODULE). 
 
 -record(state, {transition_spec, doc_spec, inspection_frequency, last_tree}).
 
 -record(transition_spec, {transition_id, from_repo, to_repo}).
-
--record(doc_spec, {
-	  transition_id,
-	  webserver_doc_root,
-	  generated_docs_base_dir,
-	  app_index_file_src,
-	  app_index_file,
-	  release_index_file_src,
-	  release_index_file
-	 }).
 
 %%====================================================================
 %% API
@@ -76,18 +67,7 @@ init([TransitionId, FromRepoDirPath, ToRepoDirPath]) ->
 				     },
 
     DocSpec = fetch_doc_specs(TransitionId),
-							     
-    #doc_spec{webserver_doc_root      = DocRoot,
-	      generated_docs_base_dir = DocDirPath,
-	      app_index_file          = AppIndexFilePath,
-	      release_index_file      = ReleaseIndexFilePath} = DocSpec,
-		    
-    ok = ewl_file:mkdir_p(DocDirPath),
-
-    AIR = (catch por_app_template:create_app_index_page(AppIndexFilePath, DocDirPath, DocRoot)),
-    RIR = (catch por_release_template:create_release_index_page(ReleaseIndexFilePath, DocDirPath, DocRoot)),
-    ?INFO_MSG("result of create app index page call ~p~n", [AIR]),
-    ?INFO_MSG("result of create release index page call ~p~n", [RIR]),
+    build_index_docs(DocSpec),						     
 
     State = #state{transition_spec      = TransitionSpec, 
 		   doc_spec             = DocSpec, 
@@ -95,6 +75,16 @@ init([TransitionId, FromRepoDirPath, ToRepoDirPath]) ->
 		   last_tree            = ToTree},
 
     {ok, State, Timeout}.
+
+build_index_docs(undefined) ->
+    ok;
+build_index_docs(DocSpec) ->
+    AIR = (catch por_app_template:create_app_index_page(DocSpec)),
+    RIR = (catch por_release_template:create_release_index_page(DocSpec)),
+    ?INFO_MSG("result of create app index page call ~p~n", [AIR]),
+    ?INFO_MSG("result of create release index page call ~p~n", [RIR]).
+
+    
 
 %%--------------------------------------------------------------------
 %% @private
@@ -146,14 +136,15 @@ handle_info(_Info, State) ->
     #transition_spec{from_repo = FR,
 		     to_repo   = TR} = TransitionSpec,
 
-    #doc_spec{generated_docs_base_dir = DocDirPath,
-	      app_index_file          = AppIndexFilePath, 
-	      release_index_file      = ReleaseIndexFilePath, 
-	      webserver_doc_root      = DocRoot} = DocSpec,
-    
     Tree     = por_file_tree:create_tree(FR),
     TreeDiff = por_file_tree:find_additions(LastTree, Tree),
-    handle_transitions(TreeDiff, FR, TR, DocDirPath, AppIndexFilePath, ReleaseIndexFilePath, DocRoot),
+    handle_transitions(TreeDiff, FR, TR, DocSpec),
+
+    case TreeDiff of
+	[] -> ok;
+	_  -> build_index_docs(DocSpec)
+    end,
+    
     {noreply, State#state{last_tree = Tree}, Timeout}.
 
 
@@ -191,9 +182,9 @@ code_change(_OldVsn, State, _Extra) ->
 %% @doc handle the transitions of all packages from one repo to another
 %% @end
 %%--------------------------------------------------------------------
-handle_transitions([], _FromRepo, _ToRepo, _DocDirPath, _AppIndexFilePath, _ReleaseIndexFilePath, _DocRoot) ->
+handle_transitions([], _FromRepo, _ToRepo, _DocSpec) ->
     ok;
-handle_transitions(TreeDiff, FromRepo, ToRepo, DocDirPath, AppIndexFilePath, ReleaseIndexFilePath, DocRoot) ->
+handle_transitions(TreeDiff, FromRepo, ToRepo, DocSpec) ->
     ?INFO_MSG("tree diff ~p~ngoing to ~s~n", [TreeDiff, ToRepo]),
     NewFiles = lists:map(fun(Path) -> 
 				 {ok, {_, Rest}} = fs_lists:separate_by_token(Path, "/"),
@@ -205,8 +196,7 @@ handle_transitions(TreeDiff, FromRepo, ToRepo, DocDirPath, AppIndexFilePath, Rel
 			      {match, _, _} -> 
 				  ok;
 			      _             -> 
-				  case catch handle_transition(FilePath, FromRepo, ToRepo, DocDirPath, 
-							       AppIndexFilePath, ReleaseIndexFilePath, DocRoot) of
+				  case catch handle_transition(FilePath, FromRepo, ToRepo, DocSpec) of
 				      ok    -> ok;
 				      Error -> ?ERROR_MSG("handle transition returned error ~p~n", [Error])
 				  end
@@ -218,7 +208,7 @@ handle_transitions(TreeDiff, FromRepo, ToRepo, DocDirPath, AppIndexFilePath, Rel
 %% @doc handle the transition of a package from one repo to another
 %% @end
 %%--------------------------------------------------------------------
-handle_transition(PackageFileSuffix, FromRepo, ToRepo, DocDirPath, AppIndexFilePath, ReleaseIndexFilePath, DocRoot) ->
+handle_transition(PackageFileSuffix, FromRepo, ToRepo, DocSpec) ->
     PackageFilePath = ewl_file:join_paths(FromRepo, PackageFileSuffix), 
     ?INFO_MSG("Transitioning ~s from ~s to ~s~n", [PackageFilePath, FromRepo, ToRepo]),
 
@@ -239,11 +229,9 @@ handle_transition(PackageFileSuffix, FromRepo, ToRepo, DocDirPath, AppIndexFileP
 	    PackageVsn  = fs_lists:get_val(package_vsn, Elements),
 	    case Side of
 		"lib" ->
-		    transition_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, 
-				   ToRepo, DocDirPath, AppIndexFilePath, DocRoot);
+		    transition_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo, DocSpec);
 		"releases" ->
-		    transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, 
-				       ToRepo, DocDirPath, ReleaseIndexFilePath, DocRoot)
+		    transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo, DocSpec)
 	    end
     end.
 
@@ -285,7 +273,7 @@ copy_over_erts(ErtsVsn, Area, FromRepo, ToRepo) ->
 %% @doc Transition an app from the FromRepo to the ToRepo.
 %% @end
 %%--------------------------------------------------------------------
-transition_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, ToRepo, DocDirPath, AppIndexFilePath, DocRoot) ->
+transition_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, ToRepo, DocSpec) ->
     PackageSuffix     = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
     FromPackagePath   = ewl_file:join_paths(FromRepo, PackageSuffix),
     TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
@@ -293,9 +281,7 @@ transition_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, T
     case epkg_validation:is_package_an_app(TmpPackageDirPath) of
 	true ->
 	    %% @todo right now docs are optional - in the future we can email the package owner with a notification
-	    (catch build_app_docs(TmpPackageDirPath, DocDirPath, ErtsVsn)),
-	    AIR = (catch por_app_template:create_app_index_page(AppIndexFilePath, DocDirPath, DocRoot)),
-	    ?INFO_MSG("result of create app index page call ~p~n", [AIR]),
+	    (catch build_app_docs(TmpPackageDirPath, ErtsVsn, DocSpec)),
 	    copy_over_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
 	false ->
 	    ?ERROR_MSG("~s failed validation~n", [FromPackagePath])
@@ -328,16 +314,14 @@ copy_over_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, To
 %% @doc Transition a release package from the FromRepo to the ToRepo.
 %% @end
 %%--------------------------------------------------------------------
-transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo, DocDirPath, ReleaseIndexFilePath, DocRoot) ->
+transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo, DocSpec) ->
     PackageSuffix     = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
     FromPackagePath   = ewl_file:join_paths(FromRepo, PackageSuffix),
     TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
 
     case epkg_validation:is_package_a_release(TmpPackageDirPath) of
 	true ->
-	    build_release_docs(TmpPackageDirPath, DocDirPath, ErtsVsn),
-	    RIR = (catch por_release_template:create_release_index_page(ReleaseIndexFilePath, DocDirPath, DocRoot)),
-	    ?INFO_MSG("result of create release index page call ~p~n", [RIR]),
+	    (catch build_release_docs(TmpPackageDirPath, ErtsVsn, DocSpec)),
 	    copy_over_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
 	false ->
 	    ?ERROR_MSG("~s failed validation~n", [FromPackagePath])
@@ -374,31 +358,32 @@ copy_over_release(ErtsVsn, Area, "releases" = Side, PackageName, PackageVsn, Fro
 %%--------------------------------------------------------------------
 %% @private
 %% @doc Build the documentation for an application.
-%% @spec build_app_docs(PackageDirPath, DocDirPath, ErtsVsn) -> ok | {error, Reason}
 %% @end
 %%--------------------------------------------------------------------
-build_app_docs(PackageDirPath, DocDirPath, ErtsVsn) ->
+build_app_docs(_PackageDirPath, _ErtsVsn, undefined) ->
+    ok;
+build_app_docs(PackageDirPath, ErtsVsn, #doc_spec{generated_docs_base_dir = DocDirPath}) ->
     {ok, {AppName, AppVsn}} = epkg_installed_paths:package_dir_to_name_and_vsn(PackageDirPath),
     case catch edoc:application(list_to_atom(AppName), PackageDirPath, []) of
 	ok -> 
-	    GeneratedDocDirPath = ewl_file:join_paths(PackageDirPath, "doc"),
-	    LibDocDirPath       = ewl_file:join_paths(ewl_file:join_paths(DocDirPath, ewl_file:join_paths("lib", ErtsVsn)), 
-									  AppName ++ "-" ++ AppVsn),
+	    GeneratedDocDirPath = filename:join([PackageDirPath, "doc"]),
+	    LibDocDirPath       = filename:join([DocDirPath, "lib", ErtsVsn, AppName ++ "-" ++ AppVsn]),
 	    ewl_file:mkdir_p(LibDocDirPath),
 	    ?INFO_MSG("copy doc dir from ~s to ~s~n", [GeneratedDocDirPath, LibDocDirPath]),
 	    ewl_file:copy_dir(GeneratedDocDirPath, LibDocDirPath);
 	Error  -> 
-	    ?ERROR_MSG("doc failed for ~s-~s wieh ~p~n", [AppName, AppVsn, Error]),
+	    ?ERROR_MSG("doc failed for ~s-~s with ~p~n", [AppName, AppVsn, Error]),
 	    {error, {doc_failed, AppName, AppVsn, Error}}
     end.
 	    
 %%--------------------------------------------------------------------
 %% @private
 %% @doc Build the documentation for an release.
-%% @spec build_release_docs(PackageDirPath, DocDirPath, ErtsVsn) -> ok | {error, Reason}
 %% @end
 %%--------------------------------------------------------------------
-build_release_docs(PackageDirPath, DocDirPath, ErtsVsn) ->
+build_release_docs(_PackageDirPath, _ErtsVsn, undefined) ->
+    ok;
+build_release_docs(PackageDirPath, ErtsVsn, #doc_spec{generated_docs_base_dir = DocDirPath}) ->
     {ok, {RelName, RelVsn}} = epkg_installed_paths:package_dir_to_name_and_vsn(PackageDirPath),
     ControlFilePath = ewl_file:join_paths(PackageDirPath, "control"),
     case filelib:is_file(ControlFilePath) of
@@ -408,7 +393,8 @@ build_release_docs(PackageDirPath, DocDirPath, ErtsVsn) ->
 	    ewl_file:mkdir_p(RelDocDirPath),
 	    ?INFO_MSG("copy doc dir from ~s to ~s~n", [ControlFilePath, RelDocDirPath]),
 	    file:copy(ControlFilePath, ewl_file:join_paths(RelDocDirPath, "control")),
-	    por_release_template:generate_release_doc(RelDocBaseDirPath, RelDocDirPath, ErtsVsn);
+	    Reply = por_release_template:generate_release_doc(RelDocBaseDirPath, RelDocDirPath, ErtsVsn),
+	    ?INFO_MSG("release doc generation returned ~p~n", [Reply]);
 	false  -> 
 	    ?ERROR_MSG("doc failed for ~s-~s because the release has no control file~n", [RelName, RelVsn]),
 	    {error, {doc_failed, RelName, RelVsn}}

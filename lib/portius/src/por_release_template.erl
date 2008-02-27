@@ -16,12 +16,12 @@
 %% API
 -export([
 	 generate_release_doc/3,
-	 create_release_index_page/2,
-	 create_release_index_page/3
+	 create_release_index_page/1
 	]).
 
 -include("eunit.hrl").
 -include("macros.hrl").
+-include("portius.hrl").
 
 -define(VERSION_HISTORY_DEPTH, 5).
 
@@ -40,8 +40,8 @@
 %%--------------------------------------------------------------------
 generate_release_doc(RelDocRootDirPath, RelDocDirPath, ErtsVsn) -> 
     ControlFilePath = ewl_file:join_paths(RelDocDirPath, "control"),
-    {ok, IndexTemplate} = get_single_release_template(RelDocRootDirPath),
     try
+	{ok, IndexTemplate} = get_single_release_template(RelDocRootDirPath),
 	true =  epkg_validation:is_valid_control_file(ControlFilePath),
 	Attrs = [
 		 {erts_vsn, ErtsVsn}, 
@@ -64,18 +64,20 @@ generate_release_doc(RelDocRootDirPath, RelDocDirPath, ErtsVsn) ->
 
 %%--------------------------------------------------------------------
 %% @doc Create release index file.
-%% @spec create_release_index_page(IndexFilePath, ErlDocRootDirPath, DocRoot) -> ok
+%% @spec create_release_index_page(DocSpec) -> ok
 %% where
-%%  IndexFilePath = string()
-%%  ErlDocRootDirPath = string()
-%%  DocRoot = string()
+%%  DocSpec = record()
 %% @end
 %%--------------------------------------------------------------------
-create_release_index_page(IndexFilePath, ErlDocRootDirPath, DocRoot) -> 
+create_release_index_page(DocSpec) -> 
+    #doc_spec{webserver_doc_root      = DocRoot,
+	      generated_docs_base_dir = ErlDocRootDirPath,
+	      release_index_file      = IndexFilePath} = DocSpec,
+
     RelDocRootDirPath = ewl_file:join_paths(ErlDocRootDirPath, "releases"),
     ewl_file:mkdir_p(RelDocRootDirPath),
 
-    {ok, IndexTemplate} = get_index_template(RelDocRootDirPath),
+    {ok, IndexTemplate} = get_index_template(DocSpec),
     {ok, PartTemplate}  = get_part_template(RelDocRootDirPath),
     NewPage             = render_page(IndexTemplate, PartTemplate, gather_release_specs(RelDocRootDirPath), DocRoot),
     case NewPage of
@@ -86,11 +88,6 @@ create_release_index_page(IndexFilePath, ErlDocRootDirPath, DocRoot) ->
 	Error ->
 	    ?ERROR_MSG("release src under ~p failed to render with ~p~n", [RelDocRootDirPath, Error])
     end.
-
-%% @spec create_release_index_page(ErlDocRootDirPath, DocRoot) -> ok
-%% @equiv create_release_index_page(DefaultIndexFilePath, ErlDocRootDirPath, DocRoot)
-create_release_index_page(ErlDocRootDirPath, DocRoot) -> 
-    create_release_index_page(ewl_file:join_paths(ErlDocRootDirPath, "releases/index.html"), ErlDocRootDirPath, DocRoot).
 
 %%====================================================================
 %% Internal Functions
@@ -115,7 +112,7 @@ get_single_release_template(RelDocRootDirPath) ->
 		      "  <strong>Description:</strong><p>$description$</p>",
 		      "  <strong>Categories:</strong><p>$categories$</p>",
 		      "  <strong>Compiled for Erts version:</strong> $erts_vsn$",
-		      "  <br/><small>Powered by Erlware Portius</small>",
+		      "  <br/><hr/><small>Powered by Erlware Portius</small>",
 		      " </body>",
 		      "</html>"],
 		     "\n"),
@@ -132,8 +129,18 @@ get_single_release_template(RelDocRootDirPath) ->
 %% @doc fetch the release index template. If it does not exist create it and then fetch it. 
 %% @end
 %%--------------------------------------------------------------------
-get_index_template(RelDocRootDirPath) ->
-    SrcFilePath = ewl_file:join_paths(RelDocRootDirPath, "index.src"),
+get_index_template(#doc_spec{release_index_file_src = IndexFilePath, release_index_file = IndexFilePath}) ->
+    IndexSrcFilePath = IndexFilePath ++ ".src",
+    case {filelib:is_file(IndexFilePath), filelib:is_file(IndexSrcFilePath)} of
+	{true, false} -> 
+	    file:copy(IndexFilePath, IndexSrcFilePath);
+	{_, _} ->
+	    ok
+    end,
+    get_index_template(IndexSrcFilePath);
+get_index_template(#doc_spec{release_index_file_src = IndexSrcFilePath}) ->
+    get_index_template(IndexSrcFilePath);
+get_index_template(SrcFilePath) ->
     case sgte:compile_file(SrcFilePath) of
 	{ok, _} = Resp -> 
 	    Resp;
@@ -146,12 +153,12 @@ get_index_template(RelDocRootDirPath) ->
 		      " <body>",
 		      "  <h1>Erlware Erlang/OTP Release Listing</h1>",
 		      "  $release_list$",
-		      "  <br/><small>Powered by Erlware Portius</small>",
+		      "  <br/><hr/><small>Powered by Erlware Portius</small>",
 		      " </body>",
 		      "</html>"],
 		     "\n"),
 	    ok = io:fwrite(IOD, "~s", [Page]),
-	    get_index_template(RelDocRootDirPath)
+	    get_index_template(SrcFilePath)
     end.
 
 %%--------------------------------------------------------------------
