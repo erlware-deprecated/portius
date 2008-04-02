@@ -24,7 +24,7 @@
 
 -record(state, {transition_spec, doc_spec, inspection_frequency, last_tree}).
 
--record(transition_spec, {transition_id, from_repo, to_repo}).
+-record(transition_spec, {transition_id, from_repo, to_repo, include_list}).
 
 %%====================================================================
 %% API
@@ -61,9 +61,11 @@ init([TransitionId, FromRepoDirPath, ToRepoDirPath]) ->
     ToTree = por_file_tree:create_tree(ToRepoDirPath),
     ?INFO_MSG("created initial tree from ~s~n", [ToRepoDirPath]),
 
-    TransitionSpec = #transition_spec{transition_id = TransitionId,
-				      from_repo     = FromRepoDirPath, 
-				      to_repo       = ToRepoDirPath
+    TransitionSpec = #transition_spec{transition_id        = TransitionId,
+				      from_repo            = FromRepoDirPath, 
+				      to_repo              = ToRepoDirPath,
+				      app_include_list     = get_app_include_list(TransitionId),
+				      release_include_list = get_rel_include_list(TransitionId),
 				     },
 
     DocSpec = fetch_doc_specs(TransitionId),
@@ -133,12 +135,11 @@ handle_info(_Info, State) ->
 	   inspection_frequency = Timeout, 
 	   last_tree            = LastTree} = State,
 
-    #transition_spec{from_repo = FR,
-		     to_repo   = TR} = TransitionSpec,
+    #transition_spec{from_repo = FR} = TransitionSpec,
 
     Tree     = por_file_tree:create_tree(FR),
     TreeDiff = por_file_tree:find_additions(LastTree, Tree),
-    handle_transitions(TreeDiff, FR, TR, DocSpec),
+    handle_transitions(TreeDiff, TransitionSpec, DocSpec),
 
     case TreeDiff of
 	[] -> ok;
@@ -182,10 +183,9 @@ code_change(_OldVsn, State, _Extra) ->
 %% @doc handle the transitions of all packages from one repo to another
 %% @end
 %%--------------------------------------------------------------------
-handle_transitions([], _FromRepo, _ToRepo, _DocSpec) ->
+handle_transitions([], _TransitionSpec, _DocSpec) ->
     ok;
-handle_transitions(TreeDiff, FromRepo, ToRepo, DocSpec) ->
-    ?INFO_MSG("tree diff ~p~ngoing to ~s~n", [TreeDiff, ToRepo]),
+handle_transitions(TreeDiff, TransitionSpec, DocSpec) ->
     NewFiles = lists:map(fun(Path) -> 
 				 {ok, {_, Rest}} = fs_lists:separate_by_token(Path, "/"),
 				 Rest
@@ -196,7 +196,7 @@ handle_transitions(TreeDiff, FromRepo, ToRepo, DocSpec) ->
 			      {match, _, _} -> 
 				  ok;
 			      _             -> 
-				  case catch handle_transition(FilePath, FromRepo, ToRepo, DocSpec) of
+				  case catch handle_transition(FilePath, TransitionSpec, DocSpec) of
 				      ok    -> ok;
 				      Error -> ?ERROR_MSG("handle transition returned error ~p~n", [Error])
 				  end
@@ -208,9 +208,16 @@ handle_transitions(TreeDiff, FromRepo, ToRepo, DocSpec) ->
 %% @doc handle the transition of a package from one repo to another
 %% @end
 %%--------------------------------------------------------------------
-handle_transition(PackageFileSuffix, FromRepo, ToRepo, DocSpec) ->
-    PackageFilePath = ewl_file:join_paths(FromRepo, PackageFileSuffix), 
-    ?INFO_MSG("Transitioning ~s from ~s to ~s~n", [PackageFilePath, FromRepo, ToRepo]),
+handle_transition(PackageFileSuffix, TransitionSpec, DocSpec) ->
+
+    #transition_spec{from_repo            = FromRepoDirPath, 
+		     to_repo              = ToRepoDirPath,
+		     app_include_list     = AppIncludeList,
+		     release_include_list = RelIncludeList
+		    } = TransitionSpec,
+
+    PackageFilePath = ewl_file:join_paths(FromRepoDirPath, PackageFileSuffix), 
+    ?INFO_MSG("Transitioning ~s from ~s to ~s~n", [PackageFilePath, FromRepoDirPath, ToRepoDirPath]),
 
     case regexp:match(PackageFilePath, "/erts.") of
 	{match, _, _} ->
@@ -218,7 +225,7 @@ handle_transition(PackageFileSuffix, FromRepo, ToRepo, DocSpec) ->
 	    Elements = ewr_repo_paths:decompose_suffix(PackageFileSuffix),
 	    ErtsVsn  = fs_lists:get_val(erts_vsn, Elements),
 	    Area     = fs_lists:get_val(area, Elements),
-	    transition_erts(ErtsVsn, Area, FromRepo, ToRepo);
+	    transition_erts(ErtsVsn, Area, FromRepoDirPath, ToRepoDirPath);
 	_ ->
 	    ?INFO_MSG("transitioning ~p~n", [PackageFilePath]),
 	    Elements    = ewr_repo_paths:decompose_suffix(PackageFileSuffix),
@@ -228,10 +235,26 @@ handle_transition(PackageFileSuffix, FromRepo, ToRepo, DocSpec) ->
 	    PackageName = fs_lists:get_val(package_name, Elements),
 	    PackageVsn  = fs_lists:get_val(package_vsn, Elements),
 	    case Side of
+		"lib" when is_list(AppIncludeList) ->
+		    case lists:member(PackageName, AppIncludeList) of
+			true ->
+			    transition_app(ErtsVsn, Area, Side, PackageName, PackageVsn, 
+					   FromRepoDirPath, ToRepoDirPath, DocSpec);
+			false ->
+			    ?INFO_MSG("application ~p is not in the include list ~p~n", [PackageName, AppIncludeList])
+		    end;
 		"lib" ->
-		    transition_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo, DocSpec);
+		    transition_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepoDirPath, ToRepoDirPath, DocSpec);
+		"releases" when is_list(RelIncludeList) ->
+		    case lists:member(PackageName, RelIncludeList) of
+			true ->
+			    transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, 
+					       FromRepoDirPath, ToRepoDirPath, DocSpec);
+			false ->
+			    ?INFO_MSG("release ~p is not in the include list ~p~n", [PackageName, RelIncludeList])
+		    end;
 		"releases" ->
-		    transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo, DocSpec)
+		    transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepoDirPath, ToRepoDirPath, DocSpec)
 	    end
     end.
 
@@ -426,3 +449,15 @@ fetch_doc_specs(TransitionId) ->
 	_ ->
 	    undefined
     end.
+
+get_include_list(TransitionId) ->
+    case gas:get_env(portius, include_list) of
+	{ok, IncludeLists} ->
+	    case lists:keysearch(TransitionId, 1, IncludeLists) of
+		{value, {TransitionId, IncludeList}} -> IncludeList;
+		_                                    -> undefined
+	    end;
+	_ ->
+	    undefined
+    end.
+    
