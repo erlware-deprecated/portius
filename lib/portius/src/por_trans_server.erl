@@ -22,9 +22,10 @@
 
 -define(SERVER, ?MODULE). 
 
--record(state, {transition_spec, doc_spec, inspection_frequency, last_tree}).
+-record(state, {transition_spec, inspection_frequency, last_tree}).
 
--record(transition_spec, {transition_id, from_repo, to_repo, include_list}).
+-record(transition_spec, {from_repo, to_repo, children}).
+-record(signature, {type, package_name, modulus, exponent}).
 
 %%====================================================================
 %% API
@@ -61,18 +62,14 @@ init([TransitionId, FromRepoDirPath, ToRepoDirPath]) ->
     ToTree = por_file_tree:create_tree(ToRepoDirPath),
     ?INFO_MSG("created initial tree from ~s~n", [ToRepoDirPath]),
 
-    TransitionSpec = #transition_spec{transition_id        = TransitionId,
-				      from_repo            = FromRepoDirPath, 
-				      to_repo              = ToRepoDirPath,
-				      app_include_list     = get_app_include_list(TransitionId),
-				      release_include_list = get_rel_include_list(TransitionId),
+    TransitionSpec = #transition_spec{from_repo = FromRepoDirPath, 
+				      to_repo   = ToRepoDirPath,
+				      children  = fetch_children(TransitionId),
 				     },
 
-    DocSpec = fetch_doc_specs(TransitionId),
-    build_index_docs(DocSpec),						     
+    build_index_docs(fs_lists:get_val(doc_spec, TransitionSpec#transition_spec.children)),						     
 
     State = #state{transition_spec      = TransitionSpec, 
-		   doc_spec             = DocSpec, 
 		   inspection_frequency = Timeout, 
 		   last_tree            = ToTree},
 
@@ -131,19 +128,18 @@ handle_cast(_Msg, State) ->
 %%--------------------------------------------------------------------
 handle_info(_Info, State) ->
     #state{transition_spec      = TransitionSpec, 
-	   doc_spec             = DocSpec, 
 	   inspection_frequency = Timeout, 
 	   last_tree            = LastTree} = State,
 
-    #transition_spec{from_repo = FR} = TransitionSpec,
+    #transition_spec{from_repo = FR, children = Children} = TransitionSpec,
 
     Tree     = por_file_tree:create_tree(FR),
     TreeDiff = por_file_tree:find_additions(LastTree, Tree),
-    handle_transitions(TreeDiff, TransitionSpec, DocSpec),
+    handle_transitions(TreeDiff, TransitionSpec, Children),
 
     case TreeDiff of
 	[] -> ok;
-	_  -> build_index_docs(DocSpec)
+	_  -> build_index_docs(fs_lists:get_val(doc_spec, TransitionSpec#transition_spec.children)))
     end,
     
     {noreply, State#state{last_tree = Tree}, Timeout}.
@@ -183,9 +179,9 @@ code_change(_OldVsn, State, _Extra) ->
 %% @doc handle the transitions of all packages from one repo to another
 %% @end
 %%--------------------------------------------------------------------
-handle_transitions([], _TransitionSpec, _DocSpec) ->
+handle_transitions([], _TransitionSpec) ->
     ok;
-handle_transitions(TreeDiff, TransitionSpec, DocSpec) ->
+handle_transitions(TreeDiff, TransitionSpec) ->
     NewFiles = lists:map(fun(Path) -> 
 				 {ok, {_, Rest}} = fs_lists:separate_by_token(Path, "/"),
 				 Rest
@@ -208,12 +204,11 @@ handle_transitions(TreeDiff, TransitionSpec, DocSpec) ->
 %% @doc handle the transition of a package from one repo to another
 %% @end
 %%--------------------------------------------------------------------
-handle_transition(PackageFileSuffix, TransitionSpec, DocSpec) ->
+handle_transition(PackageFileSuffix, TransitionSpec) ->
 
-    #transition_spec{from_repo            = FromRepoDirPath, 
-		     to_repo              = ToRepoDirPath,
-		     app_include_list     = AppIncludeList,
-		     release_include_list = RelIncludeList
+    #transition_spec{from_repo  = FromRepoDirPath, 
+		     to_repo    = ToRepoDirPath,
+		     children   = Children
 		    } = TransitionSpec,
 
     PackageFilePath = ewl_file:join_paths(FromRepoDirPath, PackageFileSuffix), 
@@ -239,22 +234,22 @@ handle_transition(PackageFileSuffix, TransitionSpec, DocSpec) ->
 		    case lists:member(PackageName, AppIncludeList) of
 			true ->
 			    transition_app(ErtsVsn, Area, Side, PackageName, PackageVsn, 
-					   FromRepoDirPath, ToRepoDirPath, DocSpec);
+					   FromRepoDirPath, ToRepoDirPath, Children);
 			false ->
 			    ?INFO_MSG("application ~p is not in the include list ~p~n", [PackageName, AppIncludeList])
 		    end;
 		"lib" ->
-		    transition_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepoDirPath, ToRepoDirPath, DocSpec);
+		    transition_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepoDirPath, ToRepoDirPath, Children);
 		"releases" when is_list(RelIncludeList) ->
 		    case lists:member(PackageName, RelIncludeList) of
 			true ->
 			    transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, 
-					       FromRepoDirPath, ToRepoDirPath, DocSpec);
+					       FromRepoDirPath, ToRepoDirPath, Children);
 			false ->
 			    ?INFO_MSG("release ~p is not in the include list ~p~n", [PackageName, RelIncludeList])
 		    end;
 		"releases" ->
-		    transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepoDirPath, ToRepoDirPath, DocSpec)
+		    transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepoDirPath, ToRepoDirPath, Children)
 	    end
     end.
 
@@ -427,16 +422,15 @@ build_release_docs(PackageDirPath, ErtsVsn, #doc_spec{generated_docs_base_dir = 
     
 %%--------------------------------------------------------------------
 %% @private
-%% @doc fetch doc specs from config.  Returns doc_spec record or undefined.
+%% @doc fetch doc spec from config.  Returns doc_spec record or undefined.
 %% @end
 %%--------------------------------------------------------------------
-fetch_doc_specs(TransitionId) ->
+fetch_doc_spec(TransitionId) ->
     case gas:get_env(portius, doc_specs) of
 	{ok, DocSpecs} ->
 	    case lists:keysearch(TransitionId, 1, DocSpecs) of
 		{value, {TransitionId, W, G, Asrc, A, Rsrc, R}} ->
-		    #doc_spec{transition_id           = TransitionId,
-			      webserver_doc_root      = W,
+		    #doc_spec{webserver_doc_root      = W,
 			      generated_docs_base_dir = G,
 			      app_index_file_src      = Asrc,
 			      app_index_file          = A,
@@ -450,14 +444,26 @@ fetch_doc_specs(TransitionId) ->
 	    undefined
     end.
 
-get_include_list(TransitionId) ->
-    case gas:get_env(portius, include_list) of
-	{ok, IncludeLists} ->
-	    case lists:keysearch(TransitionId, 1, IncludeLists) of
-		{value, {TransitionId, IncludeList}} -> IncludeList;
-		_                                    -> undefined
-	    end;
+fetch_signature(TransitionId) ->
+    case gas:get_env(portius, signatures) of
+	{ok, Signatures} ->
+	    [#signature{type         = element(2, E), 
+			package_name = element(3, E), 
+			modulus      = element(4, E), 
+			exponent     = element(2, E)} || E <- Signatures, element(1, E) == TransitionId];
 	_ ->
 	    undefined
     end.
     
+fetch_children(TransitionId) ->
+    lists:foldl(fun(Key, Acc) ->
+			F = list_to_atom(lists:flatten([atom_to_list(Key)])),
+			case F(TransitionId) of
+			    undefined -> Acc;
+			    Value     -> [{Key, Value}|Acc]
+			end
+		end,
+		[signature, doc_spec]).
+				
+			
+			
