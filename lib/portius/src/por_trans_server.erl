@@ -17,6 +17,12 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
+%% Prevent warnings on dynamically called functions
+-export([
+	 fetch_doc_spec/1,
+	 fetch_signature/1
+	]).
+
 -include("macros.hrl").
 -include("portius.hrl").
 
@@ -64,11 +70,10 @@ init([TransitionId, FromRepoDirPath, ToRepoDirPath]) ->
 
     TransitionSpec = #transition_spec{from_repo = FromRepoDirPath, 
 				      to_repo   = ToRepoDirPath,
-				      children  = fetch_children(TransitionId),
+				      children  = fetch_children(TransitionId)
 				     },
 
     build_index_docs(fs_lists:get_val(doc_spec, TransitionSpec#transition_spec.children)),						     
-
     State = #state{transition_spec      = TransitionSpec, 
 		   inspection_frequency = Timeout, 
 		   last_tree            = ToTree},
@@ -82,8 +87,6 @@ build_index_docs(DocSpec) ->
     RIR = (catch por_release_template:create_release_index_page(DocSpec)),
     ?INFO_MSG("result of create app index page call ~p~n", [AIR]),
     ?INFO_MSG("result of create release index page call ~p~n", [RIR]).
-
-    
 
 %%--------------------------------------------------------------------
 %% @private
@@ -135,11 +138,11 @@ handle_info(_Info, State) ->
 
     Tree     = por_file_tree:create_tree(FR),
     TreeDiff = por_file_tree:find_additions(LastTree, Tree),
-    handle_transitions(TreeDiff, TransitionSpec, Children),
+    handle_transitions(TreeDiff, TransitionSpec),
 
     case TreeDiff of
 	[] -> ok;
-	_  -> build_index_docs(fs_lists:get_val(doc_spec, TransitionSpec#transition_spec.children)))
+	_  -> build_index_docs(fs_lists:get_val(doc_spec, Children))
     end,
     
     {noreply, State#state{last_tree = Tree}, Timeout}.
@@ -192,7 +195,7 @@ handle_transitions(TreeDiff, TransitionSpec) ->
 			      {match, _, _} -> 
 				  ok;
 			      _             -> 
-				  case catch handle_transition(FilePath, TransitionSpec, DocSpec) of
+				  case catch handle_transition(FilePath, TransitionSpec) of
 				      ok    -> ok;
 				      Error -> ?ERROR_MSG("handle transition returned error ~p~n", [Error])
 				  end
@@ -205,24 +208,11 @@ handle_transitions(TreeDiff, TransitionSpec) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_transition(PackageFileSuffix, TransitionSpec) ->
-
-    #transition_spec{from_repo  = FromRepoDirPath, 
-		     to_repo    = ToRepoDirPath,
-		     children   = Children
-		    } = TransitionSpec,
-
-    PackageFilePath = ewl_file:join_paths(FromRepoDirPath, PackageFileSuffix), 
-    ?INFO_MSG("Transitioning ~s from ~s to ~s~n", [PackageFilePath, FromRepoDirPath, ToRepoDirPath]),
-
-    case regexp:match(PackageFilePath, "/erts.") of
+    case regexp:match(PackageFileSuffix, "/erts.") of
 	{match, _, _} ->
-	    ?INFO_MSG("transitioning erts ~p~n", [PackageFilePath]),
-	    Elements = ewr_repo_paths:decompose_suffix(PackageFileSuffix),
-	    ErtsVsn  = fs_lists:get_val(erts_vsn, Elements),
-	    Area     = fs_lists:get_val(area, Elements),
-	    transition_erts(ErtsVsn, Area, FromRepoDirPath, ToRepoDirPath);
+	    transition_erts(PackageFileSuffix, TransitionSpec);
 	_ ->
-	    ?INFO_MSG("transitioning ~p~n", [PackageFilePath]),
+	    ?INFO_MSG("transitioning ~p~n", [PackageFileSuffix]),
 	    Elements    = ewr_repo_paths:decompose_suffix(PackageFileSuffix),
 	    ErtsVsn     = fs_lists:get_val(erts_vsn, Elements),
 	    Side        = fs_lists:get_val(side, Elements),
@@ -230,26 +220,10 @@ handle_transition(PackageFileSuffix, TransitionSpec) ->
 	    PackageName = fs_lists:get_val(package_name, Elements),
 	    PackageVsn  = fs_lists:get_val(package_vsn, Elements),
 	    case Side of
-		"lib" when is_list(AppIncludeList) ->
-		    case lists:member(PackageName, AppIncludeList) of
-			true ->
-			    transition_app(ErtsVsn, Area, Side, PackageName, PackageVsn, 
-					   FromRepoDirPath, ToRepoDirPath, Children);
-			false ->
-			    ?INFO_MSG("application ~p is not in the include list ~p~n", [PackageName, AppIncludeList])
-		    end;
 		"lib" ->
-		    transition_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepoDirPath, ToRepoDirPath, Children);
-		"releases" when is_list(RelIncludeList) ->
-		    case lists:member(PackageName, RelIncludeList) of
-			true ->
-			    transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, 
-					       FromRepoDirPath, ToRepoDirPath, Children);
-			false ->
-			    ?INFO_MSG("release ~p is not in the include list ~p~n", [PackageName, RelIncludeList])
-		    end;
+		    transition_app(ErtsVsn, Area, Side, PackageName, PackageVsn, TransitionSpec);
 		"releases" ->
-		    transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepoDirPath, ToRepoDirPath, Children)
+		    transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, TransitionSpec)
 	    end
     end.
 
@@ -258,14 +232,26 @@ handle_transition(PackageFileSuffix, TransitionSpec) ->
 %% @doc Transition an erts package from the FromRepo to the ToRepo.
 %% @end
 %%--------------------------------------------------------------------
-transition_erts(ErtsVsn, Area, FromRepo, ToRepo) ->
+transition_erts(PackageFileSuffix, TransitionSpec) ->
+    #transition_spec{
+		 from_repo  = FromRepoDirPath, 
+		 to_repo    = ToRepoDirPath
+		} = TransitionSpec,
+
+    PackageFilePath = ewl_file:join_paths(FromRepoDirPath, PackageFileSuffix), 
+    ?INFO_MSG("Transitioning ~s from ~s to ~s~n", [PackageFilePath, FromRepoDirPath, ToRepoDirPath]),
+    ?INFO_MSG("transitioning erts ~p~n", [PackageFilePath]),
+    Elements = ewr_repo_paths:decompose_suffix(PackageFileSuffix),
+    ErtsVsn  = fs_lists:get_val(erts_vsn, Elements),
+    Area     = fs_lists:get_val(area, Elements),
+
     PackageSuffix     = ewr_repo_paths:erts_package_suffix(ErtsVsn, Area),
-    FromPackagePath   = ewl_file:join_paths(FromRepo, PackageSuffix),
+    FromPackagePath   = ewl_file:join_paths(FromRepoDirPath, PackageSuffix),
     TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
 
     case epkg_validation:is_package_erts(TmpPackageDirPath) of
 	true ->
-	    copy_over_erts(ErtsVsn, Area, FromRepo, ToRepo);
+	    copy_over_erts(ErtsVsn, Area, FromRepoDirPath, ToRepoDirPath);
 	false ->
 	    ?ERROR_MSG("~s failed validation~n", [FromPackagePath])
     end.
@@ -291,7 +277,10 @@ copy_over_erts(ErtsVsn, Area, FromRepo, ToRepo) ->
 %% @doc Transition an app from the FromRepo to the ToRepo.
 %% @end
 %%--------------------------------------------------------------------
-transition_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, ToRepo, DocSpec) ->
+transition_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, TransitionSpec) ->
+    FromRepo = TransitionSpec#transition_spec.from_repo,
+    ToRepo   = TransitionSpec#transition_spec.to_repo,
+    Children = TransitionSpec#transition_spec.to_repo,
     PackageSuffix     = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
     FromPackagePath   = ewl_file:join_paths(FromRepo, PackageSuffix),
     TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
@@ -299,6 +288,7 @@ transition_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, T
     case epkg_validation:is_package_an_app(TmpPackageDirPath) of
 	true ->
 	    %% @todo right now docs are optional - in the future we can email the package owner with a notification
+	    DocSpec = fs_lists:get_val(doc_spec, Children),						     
 	    (catch build_app_docs(TmpPackageDirPath, ErtsVsn, DocSpec)),
 	    copy_over_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
 	false ->
@@ -332,13 +322,17 @@ copy_over_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, To
 %% @doc Transition a release package from the FromRepo to the ToRepo.
 %% @end
 %%--------------------------------------------------------------------
-transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo, DocSpec) ->
+transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, TransitionSpec) ->
+    FromRepo = TransitionSpec#transition_spec.from_repo,
+    ToRepo   = TransitionSpec#transition_spec.to_repo,
+    Children = TransitionSpec#transition_spec.to_repo,
     PackageSuffix     = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
     FromPackagePath   = ewl_file:join_paths(FromRepo, PackageSuffix),
     TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
 
     case epkg_validation:is_package_a_release(TmpPackageDirPath) of
 	true ->
+	    DocSpec = fs_lists:get_val(doc_spec, Children),						     
 	    (catch build_release_docs(TmpPackageDirPath, ErtsVsn, DocSpec)),
 	    copy_over_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
 	false ->
@@ -418,8 +412,6 @@ build_release_docs(PackageDirPath, ErtsVsn, #doc_spec{generated_docs_base_dir = 
 	    {error, {doc_failed, RelName, RelVsn}}
     end.
 	    
-
-    
 %%--------------------------------------------------------------------
 %% @private
 %% @doc fetch doc spec from config.  Returns doc_spec record or undefined.
@@ -454,7 +446,7 @@ fetch_signature(TransitionId) ->
 	_ ->
 	    undefined
     end.
-    
+
 fetch_children(TransitionId) ->
     lists:foldl(fun(Key, Acc) ->
 			F = list_to_atom(lists:flatten([atom_to_list(Key)])),
