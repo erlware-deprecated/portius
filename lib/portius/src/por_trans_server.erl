@@ -14,13 +14,12 @@
 -export([start_link/3]).
 
 %% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-	 terminate/2, code_change/3]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 %% Prevent warnings on dynamically called functions
 -export([
 	 fetch_doc_spec/1,
-	 fetch_signature/1
+	 fetch_signatures/1
 	]).
 
 -include("macros.hrl").
@@ -30,7 +29,7 @@
 
 -record(state, {transition_spec, inspection_frequency, last_tree}).
 
--record(transition_spec, {from_repo, to_repo, children}).
+-record(transition_spec, {transition_id, from_repo, to_repo, children}).
 -record(signature, {type, package_name, modulus, exponent}).
 
 %%====================================================================
@@ -68,10 +67,12 @@ init([TransitionId, FromRepoDirPath, ToRepoDirPath]) ->
     ToTree = por_file_tree:create_tree(ToRepoDirPath),
     ?INFO_MSG("created initial tree from ~s~n", [ToRepoDirPath]),
 
-    TransitionSpec = #transition_spec{from_repo = FromRepoDirPath, 
-				      to_repo   = ToRepoDirPath,
-				      children  = fetch_children(TransitionId)
-				     },
+    TransitionSpec = #transition_spec{
+      transition_id = TransitionId,
+      from_repo = FromRepoDirPath, 
+      to_repo   = ToRepoDirPath,
+      children  = fetch_children(TransitionId)
+     },
 
     build_index_docs(fs_lists:get_val(doc_spec, TransitionSpec#transition_spec.children)),						     
     State = #state{transition_spec      = TransitionSpec, 
@@ -194,7 +195,7 @@ handle_transitions(TreeDiff, TransitionSpec) ->
 			  case regexp:match(FilePath, ".*Meta.*") of
 			      {match, _, _} -> 
 				  ok;
-			      _             -> 
+			      _ -> 
 				  case catch handle_transition(FilePath, TransitionSpec) of
 				      ok    -> ok;
 				      Error -> ?ERROR_MSG("handle transition returned error ~p~n", [Error])
@@ -237,7 +238,7 @@ transition_erts(PackageFileSuffix, TransitionSpec) ->
 		 from_repo  = FromRepoDirPath, 
 		 to_repo    = ToRepoDirPath
 		} = TransitionSpec,
-
+    
     PackageFilePath = ewl_file:join_paths(FromRepoDirPath, PackageFileSuffix), 
     ?INFO_MSG("Transitioning ~s from ~s to ~s~n", [PackageFilePath, FromRepoDirPath, ToRepoDirPath]),
     ?INFO_MSG("transitioning erts ~p~n", [PackageFilePath]),
@@ -245,13 +246,16 @@ transition_erts(PackageFileSuffix, TransitionSpec) ->
     ErtsVsn  = fs_lists:get_val(erts_vsn, Elements),
     Area     = fs_lists:get_val(area, Elements),
 
-    PackageSuffix     = ewr_repo_paths:erts_package_suffix(ErtsVsn, Area),
-    FromPackagePath   = ewl_file:join_paths(FromRepoDirPath, PackageSuffix),
+    PackageFileSuffix     = ewr_repo_paths:erts_package_suffix(ErtsVsn, Area),
+    FromPackagePath   = ewl_file:join_paths(FromRepoDirPath, PackageFileSuffix),
     TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
 
     case epkg_validation:is_package_erts(TmpPackageDirPath) of
 	true ->
-	    copy_over_erts(ErtsVsn, Area, FromRepoDirPath, ToRepoDirPath);
+	    case por_auth:validate_signature(erts, PackageFileSuffix, TransitionSpec) of
+		ok     -> copy_over_erts(ErtsVsn, Area, FromRepoDirPath, ToRepoDirPath);
+		_Error -> ok
+	    end;
 	false ->
 	    ?ERROR_MSG("~s failed validation~n", [FromPackagePath])
     end.
@@ -281,16 +285,21 @@ transition_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, TransitionS
     FromRepo = TransitionSpec#transition_spec.from_repo,
     ToRepo   = TransitionSpec#transition_spec.to_repo,
     Children = TransitionSpec#transition_spec.to_repo,
-    PackageSuffix     = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
-    FromPackagePath   = ewl_file:join_paths(FromRepo, PackageSuffix),
+    PackageFileSuffix     = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
+    FromPackagePath   = ewl_file:join_paths(FromRepo, PackageFileSuffix),
     TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
 
     case epkg_validation:is_package_an_app(TmpPackageDirPath) of
 	true ->
 	    %% @todo right now docs are optional - in the future we can email the package owner with a notification
-	    DocSpec = fs_lists:get_val(doc_spec, Children),						     
-	    (catch build_app_docs(TmpPackageDirPath, ErtsVsn, DocSpec)),
-	    copy_over_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
+	    case por_auth:validate_signature(app, PackageFileSuffix, TransitionSpec) of
+		ok -> 
+		    DocSpec = fs_lists:get_val(doc_spec, Children),						     
+		    (catch build_app_docs(TmpPackageDirPath, ErtsVsn, DocSpec)),
+		    copy_over_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
+		_Error ->
+		    ok
+	    end;
 	false ->
 	    ?ERROR_MSG("~s failed validation~n", [FromPackagePath])
     end.
@@ -301,10 +310,10 @@ transition_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, TransitionS
 %% @end
 %%--------------------------------------------------------------------
 copy_over_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, ToRepo) ->
-    PackageSuffix      = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
+    PackageFileSuffix      = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
     DotAppFileSuffix   = ewr_repo_paths:dot_app_file_suffix(ErtsVsn, PackageName, PackageVsn),
-    FromPackagePath    = ewl_file:join_paths(FromRepo, PackageSuffix),
-    ToPackagePath      = ewl_file:join_paths(ToRepo, PackageSuffix),
+    FromPackagePath    = ewl_file:join_paths(FromRepo, PackageFileSuffix),
+    ToPackagePath      = ewl_file:join_paths(ToRepo, PackageFileSuffix),
     FromDotAppFilePath = ewl_file:join_paths(FromRepo, DotAppFileSuffix),
     ToDotAppFilePath   = ewl_file:join_paths(ToRepo, DotAppFileSuffix),
 
@@ -326,15 +335,20 @@ transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, TransitionSpec)
     FromRepo = TransitionSpec#transition_spec.from_repo,
     ToRepo   = TransitionSpec#transition_spec.to_repo,
     Children = TransitionSpec#transition_spec.to_repo,
-    PackageSuffix     = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
-    FromPackagePath   = ewl_file:join_paths(FromRepo, PackageSuffix),
+    PackageFileSuffix     = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
+    FromPackagePath   = ewl_file:join_paths(FromRepo, PackageFileSuffix),
     TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
 
     case epkg_validation:is_package_a_release(TmpPackageDirPath) of
 	true ->
-	    DocSpec = fs_lists:get_val(doc_spec, Children),						     
-	    (catch build_release_docs(TmpPackageDirPath, ErtsVsn, DocSpec)),
-	    copy_over_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
+	    case por_auth:validate_signature(release, PackageFileSuffix, TransitionSpec) of
+		ok -> 
+		    DocSpec = fs_lists:get_val(doc_spec, Children),						     
+		    (catch build_release_docs(TmpPackageDirPath, ErtsVsn, DocSpec)),
+		    copy_over_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
+		_Error ->
+		    ok
+	    end;
 	false ->
 	    ?ERROR_MSG("~s failed validation~n", [FromPackagePath])
     end.
@@ -345,11 +359,11 @@ transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, TransitionSpec)
 %% @end
 %%--------------------------------------------------------------------
 copy_over_release(ErtsVsn, Area, "releases" = Side, PackageName, PackageVsn, FromRepo, ToRepo) ->
-    PackageSuffix       = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
+    PackageFileSuffix       = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
     DotRelFileSuffix    = ewr_repo_paths:dot_rel_file_suffix(ErtsVsn, PackageName, PackageVsn),
     ControlFileSuffix   = ewr_repo_paths:release_control_file_suffix(ErtsVsn, PackageName, PackageVsn),
-    FromPackagePath     = ewl_file:join_paths(FromRepo, PackageSuffix),
-    ToPackagePath       = ewl_file:join_paths(ToRepo, PackageSuffix),
+    FromPackagePath     = ewl_file:join_paths(FromRepo, PackageFileSuffix),
+    ToPackagePath       = ewl_file:join_paths(ToRepo, PackageFileSuffix),
     FromDotRelFilePath  = ewl_file:join_paths(FromRepo, DotRelFileSuffix),
     ToDotRelFilePath    = ewl_file:join_paths(ToRepo, DotRelFileSuffix),
     FromControlFilePath = ewl_file:join_paths(FromRepo, ControlFileSuffix),
@@ -436,7 +450,7 @@ fetch_doc_spec(TransitionId) ->
 	    undefined
     end.
 
-fetch_signature(TransitionId) ->
+fetch_signatures(TransitionId) ->
     case gas:get_env(portius, signatures) of
 	{ok, Signatures} ->
 	    [#signature{type         = element(2, E), 
@@ -455,7 +469,7 @@ fetch_children(TransitionId) ->
 			    Value     -> [{Key, Value}|Acc]
 			end
 		end,
-		[signature, doc_spec]).
+		[signatures, doc_spec]).
 				
 			
 			
