@@ -29,6 +29,7 @@
 %%====================================================================
 
 %%--------------------------------------------------------------------
+%% @todo separate this function out so that pathing concerns are moved into por_doc_builder and only rendering is here.
 %% @doc Create app index file.
 %% @spec create_app_index_page(DocSpec) -> ok
 %% where

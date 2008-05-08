@@ -30,6 +30,7 @@
 %%====================================================================
 
 %%--------------------------------------------------------------------
+%% @todo separate this function out so that pathing concerns are moved into por_doc_builder and only rendering is here.
 %% @doc Create release index file.
 %% @spec generate_release_doc(RelDocRootDirPath, RelDocDirPath, ErtsVsn) -> ok | {error, Reason}
 %% where
@@ -63,6 +64,7 @@ generate_release_doc(RelDocRootDirPath, RelDocDirPath, ErtsVsn) ->
     end.
 
 %%--------------------------------------------------------------------
+%% @todo separate this function out so that pathing concerns are moved into por_doc_builder and only rendering is here.
 %% @doc Create release index file.
 %% @spec create_release_index_page(DocSpec) -> ok
 %% where

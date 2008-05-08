@@ -9,7 +9,11 @@
 -module(por_doc_builder).
 
 %% API
--export([]).
+-export([
+	 build_index_docs/1,
+	 build_release_docs/3,
+	 build_app_docs/3
+	]).
 
 -include("macros.hrl").
 -include("portius.hrl").
