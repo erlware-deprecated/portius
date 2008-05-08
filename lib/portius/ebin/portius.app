@@ -14,6 +14,8 @@
 	por_sup,
 	por_file_tree,
 	por_manage,
+	por_auth,
+	por_doc_builder,
 	por_app_template,
 	por_release_template,
 	por_trans_server

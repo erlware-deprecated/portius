@@ -29,7 +29,6 @@
 
 -record(state, {transition_spec, inspection_frequency, last_tree}).
 
--record(transition_spec, {transition_id, from_repo, to_repo, children}).
 -record(signature, {type, package_name, modulus, exponent}).
 
 %%====================================================================
@@ -74,20 +73,12 @@ init([TransitionId, FromRepoDirPath, ToRepoDirPath]) ->
       children  = fetch_children(TransitionId)
      },
 
-    build_index_docs(fs_lists:get_val(doc_spec, TransitionSpec#transition_spec.children)),						     
+    por_doc_builder:build_index_docs(fs_lists:get_val(doc_spec, TransitionSpec#transition_spec.children)),						     
     State = #state{transition_spec      = TransitionSpec, 
 		   inspection_frequency = Timeout, 
 		   last_tree            = ToTree},
 
     {ok, State, Timeout}.
-
-build_index_docs(undefined) ->
-    ok;
-build_index_docs(DocSpec) ->
-    AIR = (catch por_app_template:create_app_index_page(DocSpec)),
-    RIR = (catch por_release_template:create_release_index_page(DocSpec)),
-    ?INFO_MSG("result of create app index page call ~p~n", [AIR]),
-    ?INFO_MSG("result of create release index page call ~p~n", [RIR]).
 
 %%--------------------------------------------------------------------
 %% @private
@@ -143,7 +134,7 @@ handle_info(_Info, State) ->
 
     case TreeDiff of
 	[] -> ok;
-	_  -> build_index_docs(fs_lists:get_val(doc_spec, Children))
+	_  -> por_doc_builder:build_index_docs(fs_lists:get_val(doc_spec, Children))
     end,
     
     {noreply, State#state{last_tree = Tree}, Timeout}.
@@ -203,11 +194,6 @@ handle_transitions(TreeDiff, TransitionSpec) ->
 			  end
 		  end, NewFiles).
  				  
-%%--------------------------------------------------------------------
-%% @private
-%% @doc handle the transition of a package from one repo to another
-%% @end
-%%--------------------------------------------------------------------
 handle_transition(PackageFileSuffix, TransitionSpec) ->
     case regexp:match(PackageFileSuffix, "/erts.") of
 	{match, _, _} ->
@@ -241,7 +227,6 @@ transition_erts(PackageFileSuffix, TransitionSpec) ->
     
     PackageFilePath = ewl_file:join_paths(FromRepoDirPath, PackageFileSuffix), 
     ?INFO_MSG("Transitioning ~s from ~s to ~s~n", [PackageFilePath, FromRepoDirPath, ToRepoDirPath]),
-    ?INFO_MSG("transitioning erts ~p~n", [PackageFilePath]),
     Elements = ewr_repo_paths:decompose_suffix(PackageFileSuffix),
     ErtsVsn  = fs_lists:get_val(erts_vsn, Elements),
     Area     = fs_lists:get_val(area, Elements),
@@ -260,11 +245,6 @@ transition_erts(PackageFileSuffix, TransitionSpec) ->
 	    ?ERROR_MSG("~s failed validation~n", [FromPackagePath])
     end.
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc Copy over an erts package from one repo to another.
-%% @end
-%%--------------------------------------------------------------------
 copy_over_erts(ErtsVsn, Area, FromRepo, ToRepo) ->
     ErtsSuffix       = ewr_repo_paths:erts_package_suffix(ErtsVsn, Area),
     FromErtsFilePath = ewl_file:join_paths(FromRepo, ErtsSuffix),
@@ -295,7 +275,7 @@ transition_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, TransitionS
 	    case por_auth:validate_signature(app, PackageFileSuffix, TransitionSpec) of
 		ok -> 
 		    DocSpec = fs_lists:get_val(doc_spec, Children),						     
-		    (catch build_app_docs(TmpPackageDirPath, ErtsVsn, DocSpec)),
+		    (catch por_doc_builder:build_app_docs(TmpPackageDirPath, ErtsVsn, DocSpec)),
 		    copy_over_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
 		_Error ->
 		    ok
@@ -304,11 +284,6 @@ transition_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, TransitionS
 	    ?ERROR_MSG("~s failed validation~n", [FromPackagePath])
     end.
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc Copy over an app package from one repo to another.
-%% @end
-%%--------------------------------------------------------------------
 copy_over_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, ToRepo) ->
     PackageFileSuffix      = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
     DotAppFileSuffix   = ewr_repo_paths:dot_app_file_suffix(ErtsVsn, PackageName, PackageVsn),
@@ -344,7 +319,7 @@ transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, TransitionSpec)
 	    case por_auth:validate_signature(release, PackageFileSuffix, TransitionSpec) of
 		ok -> 
 		    DocSpec = fs_lists:get_val(doc_spec, Children),						     
-		    (catch build_release_docs(TmpPackageDirPath, ErtsVsn, DocSpec)),
+		    (catch por_doc_builder:build_release_docs(TmpPackageDirPath, ErtsVsn, DocSpec)),
 		    copy_over_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
 		_Error ->
 		    ok
@@ -353,11 +328,6 @@ transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, TransitionSpec)
 	    ?ERROR_MSG("~s failed validation~n", [FromPackagePath])
     end.
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc Copy over an release package from one repo to another.
-%% @end
-%%--------------------------------------------------------------------
 copy_over_release(ErtsVsn, Area, "releases" = Side, PackageName, PackageVsn, FromRepo, ToRepo) ->
     PackageFileSuffix       = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
     DotRelFileSuffix    = ewr_repo_paths:dot_rel_file_suffix(ErtsVsn, PackageName, PackageVsn),
@@ -381,50 +351,6 @@ copy_over_release(ErtsVsn, Area, "releases" = Side, PackageName, PackageVsn, Fro
     ewl_file:copy_dir(FromDotRelFilePath, ToDotRelFilePath),
     ewl_file:copy_dir(FromControlFilePath, ToControlFilePath).
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc Build the documentation for an application.
-%% @end
-%%--------------------------------------------------------------------
-build_app_docs(_PackageDirPath, _ErtsVsn, undefined) ->
-    ok;
-build_app_docs(PackageDirPath, ErtsVsn, #doc_spec{generated_docs_base_dir = DocDirPath}) ->
-    {ok, {AppName, AppVsn}} = epkg_installed_paths:package_dir_to_name_and_vsn(PackageDirPath),
-    case catch edoc:application(list_to_atom(AppName), PackageDirPath, []) of
-	ok -> 
-	    GeneratedDocDirPath = filename:join([PackageDirPath, "doc"]),
-	    LibDocDirPath       = filename:join([DocDirPath, "lib", ErtsVsn, AppName ++ "-" ++ AppVsn]),
-	    ewl_file:mkdir_p(LibDocDirPath),
-	    ?INFO_MSG("copy doc dir from ~s to ~s~n", [GeneratedDocDirPath, LibDocDirPath]),
-	    ewl_file:copy_dir(GeneratedDocDirPath, LibDocDirPath);
-	Error  -> 
-	    ?ERROR_MSG("doc failed for ~s-~s with ~p~n", [AppName, AppVsn, Error]),
-	    {error, {doc_failed, AppName, AppVsn, Error}}
-    end.
-	    
-%%--------------------------------------------------------------------
-%% @private
-%% @doc Build the documentation for an release.
-%% @end
-%%--------------------------------------------------------------------
-build_release_docs(_PackageDirPath, _ErtsVsn, undefined) ->
-    ok;
-build_release_docs(PackageDirPath, ErtsVsn, #doc_spec{generated_docs_base_dir = DocDirPath}) ->
-    {ok, {RelName, RelVsn}} = epkg_installed_paths:package_dir_to_name_and_vsn(PackageDirPath),
-    ControlFilePath = ewl_file:join_paths(PackageDirPath, "control"),
-    case filelib:is_file(ControlFilePath) of
-	true -> 
-	    RelDocBaseDirPath = ewl_file:join_paths(DocDirPath, "releases"),
-	    RelDocDirPath = ewl_file:join_paths(RelDocBaseDirPath, RelName ++ "-" ++ RelVsn),
-	    ewl_file:mkdir_p(RelDocDirPath),
-	    ?INFO_MSG("copy doc dir from ~s to ~s~n", [ControlFilePath, RelDocDirPath]),
-	    file:copy(ControlFilePath, ewl_file:join_paths(RelDocDirPath, "control")),
-	    Reply = por_release_template:generate_release_doc(RelDocBaseDirPath, RelDocDirPath, ErtsVsn),
-	    ?INFO_MSG("release doc generation returned ~p~n", [Reply]);
-	false  -> 
-	    ?ERROR_MSG("doc failed for ~s-~s because the release has no control file~n", [RelName, RelVsn]),
-	    {error, {doc_failed, RelName, RelVsn}}
-    end.
 	    
 %%--------------------------------------------------------------------
 %% @private

@@ -1,4 +1,11 @@
 
+-record(transition_spec, {
+	  transition_id,
+	  from_repo,
+	  to_repo,
+	  children
+	 }).
+
 -record(doc_spec, {
 	  webserver_doc_root,
 	  generated_docs_base_dir,

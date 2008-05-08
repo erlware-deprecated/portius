@@ -14,6 +14,9 @@
 	 validate_signature/3
 	]).
 
+-include("portius.hrl").
+-include("macros.hrl").
+
 %%%===================================================================
 %%% API
 %%%===================================================================
@@ -66,10 +69,6 @@ fetch_and_manage_signatures(Type, PackageFileSuffix, TransitionSpec) ->
 %% @end
 %%--------------------------------------------------------------------
 get_signature_from_file(Type, PackageFileSuffix, TransitionSpec) ->
-    #transition_spec{from_repo  = FromRepoDirPath} = TransitionSpec,
-
-    Elements = ewr_repo_paths:decompose_suffix(PackageFileSuffix),
-    ErtsVsn  = fs_lists:get_val(erts_vsn, Elements),
     SigFilePath = signature_file_path(Type, PackageFileSuffix, TransitionSpec),
     case file:consult(SigFilePath) of
 	{ok, [{signature, {Modulus, Exponent, Message}}]} ->
@@ -79,6 +78,9 @@ get_signature_from_file(Type, PackageFileSuffix, TransitionSpec) ->
     end.
 
 signature_file_path(Type, PackageFileSuffix, TransitionSpec) ->
+    #transition_spec{from_repo  = FromRepoDirPath} = TransitionSpec,
+    Elements = ewr_repo_paths:decompose_suffix(PackageFileSuffix),
+    ErtsVsn  = fs_lists:get_val(erts_vsn, Elements),
     case Type of
 	erts -> 
 	    Area        = fs_lists:get_val(area, Elements),
@@ -113,7 +115,7 @@ fetch_stored_mod_exp(Type, PackageFileSuffix, TransitionSpec) ->
 			  Signatures),
 	    case Signature of
 		[] ->
-		    {error, signature_not_found}
+		    {error, signature_not_found};
 		[{TransitionId, Type, PackageName, Modulus, Exponent}] ->
 		    {ok, {Modulus, Exponent}}
 	    end
