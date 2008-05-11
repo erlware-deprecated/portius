@@ -23,7 +23,7 @@
 
 %%--------------------------------------------------------------------
 %% @doc fetch the contents of the digital signature file.
-%% @spec get_signature(Type, PackageFileSuffix, TransitionSpec) -> {ok, {Modulus, Exponent, Signature}} | {error, Reason}
+%% @spec validate_signature(Type, PackageFileSuffix, TransitionSpec) -> {ok, {Modulus, Exponent, Signature}} | {error, Reason}
 %% @end
 %%--------------------------------------------------------------------
 validate_signature(Type, PackageFileSuffix, TransitionSpec) ->
@@ -65,13 +65,14 @@ fetch_and_manage_signatures(Type, PackageFileSuffix, TransitionSpec) ->
     
 %%--------------------------------------------------------------------
 %% @doc fetch the contents of the digital signature file.
-%% @spec get_signature(Type, PackageFileSuffix, TransitionSpec) -> {ok, {Modulus, Exponent, Signature}} | {error, Reason}
+%% @spec get_signature_from_file(Type, PackageFileSuffix, TransitionSpec) ->
+%%        {ok, {Modulus, Exponent, Signature}} | {error, Reason}
 %% @end
 %%--------------------------------------------------------------------
 get_signature_from_file(Type, PackageFileSuffix, TransitionSpec) ->
     SigFilePath = signature_file_path(Type, PackageFileSuffix, TransitionSpec),
     case file:consult(SigFilePath) of
-	{ok, [{signature, {Modulus, Exponent, Message}}]} ->
+	{ok, [{signature, Message, Modulus, Exponent}]} ->
 	    {ok, {Modulus, Exponent, Message}};
 	Error ->
 	    Error
