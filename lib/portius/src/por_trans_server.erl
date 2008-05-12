@@ -29,8 +29,6 @@
 
 -record(state, {transition_spec, inspection_frequency, last_tree}).
 
--record(signature, {type, package_name, modulus, exponent}).
-
 %%====================================================================
 %% API
 %%====================================================================
@@ -129,8 +127,10 @@ handle_info(_Info, State) ->
 	   inspection_frequency = Timeout, 
 	   last_tree            = LastTree} = State,
 
-    #transition_spec{from_repo = FR, children = Children} = TransitionSpec,
-
+    #transition_spec{transition_id = TransitionId,
+		     from_repo = FR,
+		     children = Children} = TransitionSpec,
+    
     Tree     = por_file_tree:create_tree(FR),
     TreeDiff = por_file_tree:find_additions(LastTree, Tree),
     handle_transitions(TreeDiff, TransitionSpec),
@@ -140,7 +140,9 @@ handle_info(_Info, State) ->
 	_  -> por_doc_builder:build_index_docs(fs_lists:get_val(doc_spec, Children))
     end,
     
-    {noreply, State#state{last_tree = Tree}, Timeout}.
+    {noreply,
+     State#state{last_tree = Tree, transition_spec = TransitionSpec#transition_spec{children = fetch_children(TransitionId)}},
+     Timeout}.
 
 
 %%--------------------------------------------------------------------
@@ -319,7 +321,7 @@ transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, TransitionSpec)
 
     case epkg_validation:is_package_a_release(TmpPackageDirPath) of
 	true ->
-	    case por_auth:validate_signature(release, PackageFileSuffix, TransitionSpec) of
+	    case por_auth:validate_signature(Side, PackageFileSuffix, TransitionSpec) of
 		ok -> 
 		    DocSpec = fs_lists:get_val(doc_spec, Children),						     
 		    (catch por_doc_builder:build_release_docs(TmpPackageDirPath, ErtsVsn, DocSpec)),
@@ -389,10 +391,7 @@ fetch_doc_spec(TransitionId) ->
 fetch_signatures(TransitionId) ->
     case gas:get_env(portius, signatures) of
 	{ok, Signatures} ->
-	    [#signature{type         = element(2, E), 
-			package_name = element(3, E), 
-			modulus      = element(4, E), 
-			exponent     = element(2, E)} || E <- Signatures, element(1, E) == TransitionId];
+	    [E || E <- Signatures, element(1, E) == TransitionId];
 	_ ->
 	    undefined
     end.

@@ -119,7 +119,6 @@ fetch_stored_mod_exp(Type, PackageFileSuffix, TransitionSpec) ->
 	Signatures ->
 	    Signature = lists:filter(
 			  fun({TransitionId_, Type_, Area_, PackageName_, _, _} = Sig_) ->
-				  ?INFO_MSG("looking at signature ~p~n", [Sig_]),
 				  TransitionId == TransitionId_ andalso Type == Type_ andalso PackageName == PackageName_
 				  andalso Area == Area_
 			  end,
