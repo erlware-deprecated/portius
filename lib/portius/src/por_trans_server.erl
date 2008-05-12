@@ -11,7 +11,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/3]).
+-export([start_link/4]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
@@ -36,14 +36,16 @@
 %%====================================================================
 %%--------------------------------------------------------------------
 %% @doc
-%% Starts the server
+%% Starts the server.
 %%
-%% @spec start_link(TransitionId::atom(), FromRepoDirPath, ToRepoDirPath) -> 
+%% @spec start_link(TransitionId::atom(), FromRepoDirPath, ToRepoDirPath, SignType) -> 
 %%       {ok, Pid} | ignore | {error, Error}
+%% where
+%%  SignType = signed | unsigned
 %% @end
 %%--------------------------------------------------------------------
-start_link(TransitionId, FromRepoDirPath, ToRepoDirPath) ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [TransitionId, FromRepoDirPath, ToRepoDirPath], []).
+start_link(TransitionId, FromRepoDirPath, ToRepoDirPath, SignType) ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [TransitionId, FromRepoDirPath, ToRepoDirPath, SignType], []).
 
 %%====================================================================
 %% gen_server callbacks
@@ -60,7 +62,7 @@ start_link(TransitionId, FromRepoDirPath, ToRepoDirPath) ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([TransitionId, FromRepoDirPath, ToRepoDirPath]) ->
+init([TransitionId, FromRepoDirPath, ToRepoDirPath, SignType]) ->
     {ok, Timeout} = gas:get_env(portius, inspection_frequency),
     ok = ewl_file:mkdir_p(ToRepoDirPath),
     ToTree = por_file_tree:create_tree(ToRepoDirPath),
@@ -70,6 +72,7 @@ init([TransitionId, FromRepoDirPath, ToRepoDirPath]) ->
       transition_id = TransitionId,
       from_repo = FromRepoDirPath, 
       to_repo   = ToRepoDirPath,
+      sign_type = SignType,
       children  = fetch_children(TransitionId)
      },
 
@@ -272,7 +275,7 @@ transition_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, TransitionS
     case epkg_validation:is_package_an_app(TmpPackageDirPath) of
 	true ->
 	    %% @todo right now docs are optional - in the future we can email the package owner with a notification
-	    case por_auth:validate_signature(app, PackageFileSuffix, TransitionSpec) of
+	    case por_auth:validate_signature(Side, PackageFileSuffix, TransitionSpec) of
 		ok -> 
 		    DocSpec = fs_lists:get_val(doc_spec, Children),						     
 		    (catch por_doc_builder:build_app_docs(TmpPackageDirPath, ErtsVsn, DocSpec)),
@@ -352,11 +355,18 @@ copy_over_release(ErtsVsn, Area, "releases" = Side, PackageName, PackageVsn, Fro
     ewl_file:copy_dir(FromControlFilePath, ToControlFilePath).
 
 	    
-%%--------------------------------------------------------------------
-%% @private
-%% @doc fetch doc spec from config.  Returns doc_spec record or undefined.
-%% @end
-%%--------------------------------------------------------------------
+fetch_children(TransitionId) ->
+    lists:foldl(fun(Key, Acc) ->
+			F = list_to_atom(lists:flatten(["fetch_", atom_to_list(Key)])),
+			case ?MODULE:F(TransitionId) of
+			    undefined -> Acc;
+			    Value     -> [{Key, Value}|Acc]
+			end
+		end,
+		[],
+		[signatures, doc_spec]).
+				
+			
 fetch_doc_spec(TransitionId) ->
     case gas:get_env(portius, doc_specs) of
 	{ok, DocSpecs} ->
@@ -387,15 +397,4 @@ fetch_signatures(TransitionId) ->
 	    undefined
     end.
 
-fetch_children(TransitionId) ->
-    lists:foldl(fun(Key, Acc) ->
-			F = list_to_atom(lists:flatten([atom_to_list(Key)])),
-			case F(TransitionId) of
-			    undefined -> Acc;
-			    Value     -> [{Key, Value}|Acc]
-			end
-		end,
-		[signatures, doc_spec]).
-				
-			
 			

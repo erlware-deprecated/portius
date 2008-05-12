@@ -26,16 +26,21 @@
 %% @spec validate_signature(Type, PackageFileSuffix, TransitionSpec) -> {ok, {Modulus, Exponent, Signature}} | {error, Reason}
 %% @end
 %%--------------------------------------------------------------------
+validate_signature(_Type, _PackageFileSuffix, #transition_spec{sign_type = unsigned}) ->
+    ok;
 validate_signature(Type, PackageFileSuffix, TransitionSpec) ->
     case fetch_and_manage_signatures(Type, PackageFileSuffix, TransitionSpec) of
-	{ok, {Modulus, Exponent, Signature}} ->
-	    {ok, {PackageName, PackageVsn}} = epkg_installed_paths:package_dir_to_name_and_vsn(PackageFileSuffix),
-	    Sum = lists:foldl(fun(N, Acc) -> Acc + N end, 0, PackageName),
+	{ok, {Signature, Modulus, Exponent}} ->
+	    Elements    = ewr_repo_paths:decompose_suffix(PackageFileSuffix),
+	    PackageName = fs_lists:get_val(package_name, Elements),
+	    PackageVsn  = fs_lists:get_val(package_vsn, Elements),
+	    Sum = lists:foldl(fun(N, Acc) -> Acc + N end, 0, PackageVsn),
 	    case cg_rsa:decrypt(Signature, Modulus, Exponent) of
 		Sum ->
+		    ?INFO_MSG("signature for ~s-~s is valid~n", [PackageName, PackageVsn]),
 		    ok;
 		_NoMatch ->
-		    ?ERROR_MSG("bad signature for ~s-~s~n", [PackageName, PackageVsn]),
+		    ?ERROR_MSG("signature for ~s-~s is invalid~n", [PackageName, PackageVsn]),
 		    {error, bad_signature}
 	    end;
 	Error ->
@@ -46,34 +51,35 @@ validate_signature(Type, PackageFileSuffix, TransitionSpec) ->
 %%% Internal functions
 %%%===================================================================
 fetch_and_manage_signatures(Type, PackageFileSuffix, TransitionSpec) ->
-    {ok, {Modulus, Exponent, Signature}} = get_signature_from_file(Type, PackageFileSuffix, TransitionSpec),
+    {ok, {Signature, Modulus, Exponent}} = get_signature_from_file(Type, PackageFileSuffix, TransitionSpec),
     case fetch_stored_mod_exp(Type, PackageFileSuffix, TransitionSpec) of
 	{ok, {Modulus, Exponent}} ->
-	    {ok, {Modulus, Exponent, Signature}};
+	    {ok, {Signature, Modulus, Exponent}};
 	{ok, {OtherModulus, OtherExponent}} ->
 	    ?INFO_MSG("The modulus and exponent, ~p ~p, do not match those cached for ~p~n", [OtherModulus, OtherExponent]),
 	    {error, incorrect_keys};
-	{error, bad_config_with_no_signatures_tuple} = Error ->
-	    ?INFO_MSG("bad config containing no signatures tuple~n", []),
-	    Error;
-	{error, signature_not_found} ->
-	    {ok, {PackageName, _PackageVsn}} = epkg_installed_paths:package_dir_to_name_and_vsn(PackageFileSuffix),
+	{error, _Reason} ->
+	    ?INFO_MSG("writing out a signature for package ~p~n", [PackageFileSuffix]),
+	    Elements    = ewr_repo_paths:decompose_suffix(PackageFileSuffix),
+	    PackageName = fs_lists:get_val(package_name, Elements),
+	    Elements = ewr_repo_paths:decompose_suffix(PackageFileSuffix),
+	    Area     = fs_lists:get_val(area, Elements),
 	    #transition_spec{transition_id = TransitionId} = TransitionSpec,
-	    por_manage:add_signature(TransitionId, Type, PackageName, Modulus, Exponent),
-	    {ok, {Modulus, Exponent, Signature}}
+	    por_manage:add_signature(TransitionId, Type, Area, PackageName, Modulus, Exponent),
+	    {ok, {Signature, Modulus, Exponent}}
     end.
     
 %%--------------------------------------------------------------------
 %% @doc fetch the contents of the digital signature file.
 %% @spec get_signature_from_file(Type, PackageFileSuffix, TransitionSpec) ->
-%%        {ok, {Modulus, Exponent, Signature}} | {error, Reason}
+%%        {ok, {Signature, Modulus, Exponent}} | {error, Reason}
 %% @end
 %%--------------------------------------------------------------------
 get_signature_from_file(Type, PackageFileSuffix, TransitionSpec) ->
     SigFilePath = signature_file_path(Type, PackageFileSuffix, TransitionSpec),
     case file:consult(SigFilePath) of
-	{ok, [{signature, Message, Modulus, Exponent}]} ->
-	    {ok, {Modulus, Exponent, Message}};
+	{ok, [{signature, Signature, Modulus, Exponent}]} ->
+	    {ok, {Signature, Modulus, Exponent}};
 	Error ->
 	    Error
     end.
@@ -104,20 +110,25 @@ signature_file_path(Type, PackageFileSuffix, TransitionSpec) ->
 %%--------------------------------------------------------------------
 fetch_stored_mod_exp(Type, PackageFileSuffix, TransitionSpec) ->
     #transition_spec{transition_id = TransitionId, children = Children} = TransitionSpec,
-    {ok, {PackageName, _PackageVsn}} = epkg_installed_paths:package_dir_to_name_and_vsn(PackageFileSuffix),
+    Elements    = ewr_repo_paths:decompose_suffix(PackageFileSuffix),
+    Area        = fs_lists:get_val(area, Elements),
+    PackageName = fs_lists:get_val(package_name, Elements),
     case fs_lists:get_val(signatures, Children) of
 	undefined ->
 	    {error, bad_config_with_no_signatures_tuple};
 	Signatures ->
 	    Signature = lists:filter(
-			  fun({TransitionId_, Type_, PackageName_, _, _}) ->
+			  fun({TransitionId_, Type_, Area_, PackageName_, _, _} = Sig_) ->
+				  ?INFO_MSG("looking at signature ~p~n", [Sig_]),
 				  TransitionId == TransitionId_ andalso Type == Type_ andalso PackageName == PackageName_
+				  andalso Area == Area_
 			  end,
 			  Signatures),
 	    case Signature of
 		[] ->
+		    ?INFO_MSG("no stored signature found for ~p~n", [{TransitionId, Type, Area, PackageName}]),
 		    {error, signature_not_found};
-		[{TransitionId, Type, PackageName, Modulus, Exponent}] ->
+		[{TransitionId, Type, Area, PackageName, Modulus, Exponent}] ->
 		    {ok, {Modulus, Exponent}}
 	    end
     end.

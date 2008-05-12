@@ -8,7 +8,7 @@ Portius is simply about taking packages from one repo, filtering out the bad one
 == Features ==
 <ul>
  <li>Move packages from one repo to another.</li>
- <li>Validate the packages before moving them.</li>
+ <li>Validate the packages before moving them; including digital signatures if configured</li>
  <li>Generate documentation for each application package and place it in a known location.</li>
  <li>Generate an index page listing all currently available documention. </li>
 </ul>
@@ -37,8 +37,8 @@ Next Portius needs to be configured. To do this we edit `erlware/release_package
       %% Transitions define a move from one repo to another.
       {transitions,  
        [
-        %% <transition-id> <from-repo>, <to-repo>
-        {pub, "/var/www/htdocs/repo/writable", "/var/www/htdocs/repo/pub"} 
+        %% <transition-id> <from-repo>, <to-repo>, <signed|unsigned>
+        {pub, "/var/www/htdocs/repo/writable", "/var/www/htdocs/repo/pub", signed} 
        ]
       },
       

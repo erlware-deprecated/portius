@@ -5,7 +5,7 @@
   {description, "Manage the erlware repos"},
 
   % The version of the applicaton
-  {vsn, "0.5.1.0"},
+  {vsn, "0.5.2.2"},
 
   % All modules used by the application.
   {modules,
@@ -25,7 +25,7 @@
   {registered, []},
 
   % Applications that are to be started prior to this one.
-  {applications, [eunit, kernel, stdlib, sasl, gas, fslib, epkg, ewrepo, ewlib, sgte, edoc]},
+  {applications, [eunit, kernel, stdlib, sasl, gas, fslib, epkg, ewrepo, ewlib, sgte, edoc, cryptographic]},
 
   % OTP application loader will load, but not start, included apps
   {included_applications, []},

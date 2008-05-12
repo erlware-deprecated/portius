@@ -9,7 +9,7 @@
 
 %% API
 -export([
-	 add_signature/5
+	 add_signature/6
 	]).
 
 %%%===================================================================
@@ -18,12 +18,12 @@
 
 %%--------------------------------------------------------------------
 %% @doc Add a signature spec to config.
-%% Example Signature: {pub, release, faxien, 12123232, 435433}
-%% @spec add_signature(TransitionId, Type, PackageName, Modulus, Exponent) -> ok
+%% Example Signature: {pub, release, "Generic", faxien, 12123232, 435433}
+%% @spec add_signature(TransitionId, Type, Area, PackageName, Modulus, Exponent) -> ok
 %% @end
 %%--------------------------------------------------------------------
-add_signature(TransitionId, Type, PackageName, Modulus, Exponent) -> 
-    add_to_config_list(signatures, {TransitionId, Type, PackageName, Modulus, Exponent}).
+add_signature(TransitionId, Type, Area, PackageName, Modulus, Exponent) when is_list(Area) -> 
+    add_to_config_list(signatures, {TransitionId, Type, Area, PackageName, Modulus, Exponent}).
 
 %%%===================================================================
 %%% Internal functions
