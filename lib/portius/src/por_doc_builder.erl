@@ -28,19 +28,21 @@
 %% @end
 %%--------------------------------------------------------------------
 build_index_docs(undefined) ->
+    ?INFO_MSG("Doc transition spec undefined. Skipping doc building.~n", []),
     ok;
 build_index_docs(DocSpec) ->
     AIR = (catch por_app_template:create_app_index_page(DocSpec)),
     RIR = (catch por_release_template:create_release_index_page(DocSpec)),
-    ?INFO_MSG("result of create app index page call ~p~n", [AIR]),
-    ?INFO_MSG("result of create release index page call ~p~n", [RIR]).
+    ?INFO_MSG("Result of create app index page call ~p~n", [AIR]),
+    ?INFO_MSG("Result of create release index page call ~p~n", [RIR]).
 
 %%--------------------------------------------------------------------
 %% @doc Build the documentation for an application.
 %% @spec build_app_docs(PackageDirPath, ErtsVsn, DocSpec::record()) -> ok | {error, Reason}
 %% @end
 %%--------------------------------------------------------------------
-build_app_docs(_PackageDirPath, _ErtsVsn, undefined) ->
+build_app_docs(PackageDirPath, _ErtsVsn, undefined) ->
+    ?INFO_MSG("Doc transition spec undefined for ~p. Skipping doc building.~n", [PackageDirPath]),
     ok;
 build_app_docs(PackageDirPath, ErtsVsn, #doc_spec{generated_docs_base_dir = DocDirPath}) ->
     {ok, {AppName, AppVsn}} = epkg_installed_paths:package_dir_to_name_and_vsn(PackageDirPath),
@@ -51,7 +53,7 @@ build_app_docs(PackageDirPath, ErtsVsn, #doc_spec{generated_docs_base_dir = DocD
 	    ewl_file:mkdir_p(LibDocDirPath),
 	    ?INFO_MSG("copy doc dir from ~s to ~s~n", [GeneratedDocDirPath, LibDocDirPath]),
 	    ewl_file:copy_dir(GeneratedDocDirPath, LibDocDirPath);
-	Error  -> 
+	Error -> 
 	    ?ERROR_MSG("doc failed for ~s-~s with ~p~n", [AppName, AppVsn, Error]),
 	    {error, {doc_failed, AppName, AppVsn, Error}}
     end.
@@ -61,7 +63,8 @@ build_app_docs(PackageDirPath, ErtsVsn, #doc_spec{generated_docs_base_dir = DocD
 %% @spec build_release_docs(PackageDirPath, ErtsVsn, DocSpec::record()) -> ok | {error, Reason}
 %% @end
 %%--------------------------------------------------------------------
-build_release_docs(_PackageDirPath, _ErtsVsn, undefined) ->
+build_release_docs(PackageDirPath, _ErtsVsn, undefined) ->
+    ?INFO_MSG("Doc transition spec undefined for ~p. Skipping doc building.~n", [PackageDirPath]),
     ok;
 build_release_docs(PackageDirPath, ErtsVsn, #doc_spec{generated_docs_base_dir = DocDirPath}) ->
     {ok, {RelName, RelVsn}} = epkg_installed_paths:package_dir_to_name_and_vsn(PackageDirPath),

@@ -56,7 +56,8 @@ fetch_and_manage_signatures(Type, PackageFileSuffix, TransitionSpec) ->
 	{ok, {Modulus, Exponent}} ->
 	    {ok, {Signature, Modulus, Exponent}};
 	{ok, {OtherModulus, OtherExponent}} ->
-	    ?INFO_MSG("The modulus and exponent, ~p ~p, do not match those cached for ~p~n", [OtherModulus, OtherExponent]),
+	    ?INFO_MSG("The modulus and exponent, ~p ~p, do not match those cached for ~p~n",
+		      [OtherModulus, OtherExponent, PackageFileSuffix]),
 	    {error, incorrect_keys};
 	{error, _Reason} ->
 	    ?INFO_MSG("writing out a signature for package ~p~n", [PackageFileSuffix]),
@@ -81,6 +82,7 @@ get_signature_from_file(Type, PackageFileSuffix, TransitionSpec) ->
 	{ok, [{signature, Signature, Modulus, Exponent}]} ->
 	    {ok, {Signature, Modulus, Exponent}};
 	Error ->
+	    io:format("Error fetching signature from ~p~n", [SigFilePath]),
 	    Error
     end.
 
@@ -118,7 +120,7 @@ fetch_stored_mod_exp(Type, PackageFileSuffix, TransitionSpec) ->
 	    {error, bad_config_with_no_signatures_tuple};
 	Signatures ->
 	    Signature = lists:filter(
-			  fun({TransitionId_, Type_, Area_, PackageName_, _, _} = Sig_) ->
+			  fun({TransitionId_, Type_, Area_, PackageName_, _, _}) ->
 				  TransitionId == TransitionId_ andalso Type == Type_ andalso PackageName == PackageName_
 				  andalso Area == Area_
 			  end,

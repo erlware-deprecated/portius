@@ -74,6 +74,8 @@ init([TransitionId, FromRepoDirPath, ToRepoDirPath, SignType]) ->
       children  = fetch_children(TransitionId)
      },
 
+    ?INFO_MSG("Transition Spec ~p~n", [TransitionSpec]),
+    
     por_doc_builder:build_index_docs(fs_lists:get_val(doc_spec, TransitionSpec#transition_spec.children)),						     
     State = #state{transition_spec      = TransitionSpec, 
 		   inspection_frequency = Timeout, 
@@ -269,7 +271,7 @@ copy_over_erts(ErtsVsn, Area, FromRepo, ToRepo) ->
 transition_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, TransitionSpec) ->
     FromRepo = TransitionSpec#transition_spec.from_repo,
     ToRepo   = TransitionSpec#transition_spec.to_repo,
-    Children = TransitionSpec#transition_spec.to_repo,
+    Children = TransitionSpec#transition_spec.children,
     PackageFileSuffix     = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
     FromPackagePath   = ewl_file:join_paths(FromRepo, PackageFileSuffix),
     TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
@@ -314,7 +316,7 @@ copy_over_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, To
 transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, TransitionSpec) ->
     FromRepo = TransitionSpec#transition_spec.from_repo,
     ToRepo   = TransitionSpec#transition_spec.to_repo,
-    Children = TransitionSpec#transition_spec.to_repo,
+    Children = TransitionSpec#transition_spec.children,
     PackageFileSuffix     = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
     FromPackagePath   = ewl_file:join_paths(FromRepo, PackageFileSuffix),
     TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),

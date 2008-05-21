@@ -6,7 +6,7 @@ PREFIX=$(cd $(dirname $(dirname $PROG)); pwd)
 
 #### Fill in values for these variables ####
 REL_NAME=portius
-REL_VSN=0.5.2.5
+REL_VSN=0.5.2.14
 ERTS_VSN=5.5.5
 INVOCATION_SUFFIX="-detached -prefix $PREFIX"
 ###########################################
