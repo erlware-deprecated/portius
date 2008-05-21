@@ -19,7 +19,8 @@
 %% Prevent warnings on dynamically called functions
 -export([
 	 fetch_doc_spec/1,
-	 fetch_signatures/1
+	 fetch_signatures/1,
+	 fetch_no_doc_list/1
 	]).
 
 -include("macros.hrl").
@@ -74,7 +75,7 @@ init([TransitionId, FromRepoDirPath, ToRepoDirPath, SignType]) ->
       children  = fetch_children(TransitionId)
      },
 
-    ?INFO_MSG("Transition Spec ~p~n", [TransitionSpec]),
+    ?INFO_MSG("TransitionSpec ~p~n", [TransitionSpec]),
     
     por_doc_builder:build_index_docs(fs_lists:get_val(doc_spec, TransitionSpec#transition_spec.children)),						     
     State = #state{transition_spec      = TransitionSpec, 
@@ -282,7 +283,7 @@ transition_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, TransitionS
 	    case por_auth:validate_signature(Side, PackageFileSuffix, TransitionSpec) of
 		ok -> 
 		    DocSpec = fs_lists:get_val(doc_spec, Children),						     
-		    (catch por_doc_builder:build_app_docs(TmpPackageDirPath, ErtsVsn, DocSpec)),
+		    build_app_docs(PackageName, TmpPackageDirPath, ErtsVsn, DocSpec, Children),
 		    copy_over_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
 		_Error ->
 		    ok
@@ -291,6 +292,16 @@ transition_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, TransitionS
 	    ?ERROR_MSG("~s failed validation~n", [FromPackagePath])
     end.
 
+build_app_docs(PackageName, TmpPackageDirPath, ErtsVsn, DocSpec, Children) ->
+    NoDocList = fs_lists:get_val(no_doc_list, Children),						     
+    case catch lists:member({app, list_to_atom(PackageName)}, NoDocList) of
+	true  ->
+	    ?INFO_MSG("~p is in the no doc list; skipping~n", [PackageName]),
+	    ok;
+	false ->
+	    (catch por_doc_builder:build_app_docs(TmpPackageDirPath, ErtsVsn, DocSpec))
+    end.
+    
 copy_over_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, ToRepo) ->
     PackageFileSuffix      = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
     DotAppFileSuffix   = ewr_repo_paths:dot_app_file_suffix(ErtsVsn, PackageName, PackageVsn),
@@ -298,7 +309,6 @@ copy_over_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, To
     ToPackagePath      = ewl_file:join_paths(ToRepo, PackageFileSuffix),
     FromDotAppFilePath = ewl_file:join_paths(FromRepo, DotAppFileSuffix),
     ToDotAppFilePath   = ewl_file:join_paths(ToRepo, DotAppFileSuffix),
-
     
     ?INFO_MSG("copy dir from ~s to ~s~n", [FromPackagePath, ToPackagePath]),
     ?INFO_MSG("copy dir from ~s to ~s~n", [FromDotAppFilePath, ToDotAppFilePath]),
@@ -326,13 +336,23 @@ transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, TransitionSpec)
 	    case por_auth:validate_signature(Side, PackageFileSuffix, TransitionSpec) of
 		ok -> 
 		    DocSpec = fs_lists:get_val(doc_spec, Children),						     
-		    (catch por_doc_builder:build_release_docs(TmpPackageDirPath, ErtsVsn, DocSpec)),
+		    build_release_docs(PackageName, TmpPackageDirPath, ErtsVsn, DocSpec, Children),
 		    copy_over_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
 		_Error ->
 		    ok
 	    end;
 	false ->
 	    ?ERROR_MSG("~s failed validation~n", [FromPackagePath])
+    end.
+
+build_release_docs(PackageName, TmpPackageDirPath, ErtsVsn, DocSpec, Children) ->
+    NoDocList = fs_lists:get_val(no_doc_list, Children),						     
+    case catch lists:member({release, list_to_atom(PackageName)}, NoDocList) of
+	true  ->
+	    ?INFO_MSG("~p is in the no doc list; skipping~n", [PackageName]),
+	    ok;
+	false ->
+	    (catch por_doc_builder:build_release_docs(TmpPackageDirPath, ErtsVsn, DocSpec))
     end.
 
 copy_over_release(ErtsVsn, Area, "releases" = Side, PackageName, PackageVsn, FromRepo, ToRepo) ->
@@ -368,7 +388,7 @@ fetch_children(TransitionId) ->
 			end
 		end,
 		[],
-		[signatures, doc_spec]).
+		[signatures, doc_spec, no_doc_list]).
 				
 			
 fetch_doc_spec(TransitionId) ->
@@ -383,6 +403,19 @@ fetch_doc_spec(TransitionId) ->
 			      release_index_file_src  = Rsrc,
 			      release_index_file      = R
 			     };
+		_ ->
+		    undefined
+	    end;
+	_ ->
+	    undefined
+    end.
+
+fetch_no_doc_list(TransitionId) ->
+    case gas:get_env(portius, no_doc_list) of
+	{ok, NoDocLists} ->
+	    case lists:keysearch(TransitionId, 1, NoDocLists) of
+		{value, {_TransitionID, NoDocList}} ->
+		    NoDocList;
 		_ ->
 		    undefined
 	    end;
