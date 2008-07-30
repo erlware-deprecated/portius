@@ -143,9 +143,8 @@ handle_info(_Info, State) ->
 	_  -> por_doc_builder:build_index_docs(fs_lists:get_val(doc_spec, Children))
     end,
     
-    {noreply,
-     State#state{last_tree = Tree, transition_spec = TransitionSpec#transition_spec{children = fetch_children(TransitionId)}},
-     Timeout}.
+    NewTransitionSpec = TransitionSpec#transition_spec{children = fetch_children(TransitionId)},
+    {noreply, State#state{last_tree = Tree, transition_spec = NewTransitionSpec}, Timeout}.
 
 
 %%--------------------------------------------------------------------
@@ -282,8 +281,7 @@ transition_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, TransitionS
 	    %% @todo right now docs are optional - in the future we can email the package owner with a notification
 	    case por_auth:validate_signature(Side, PackageFileSuffix, TransitionSpec) of
 		ok -> 
-		    DocSpec = fs_lists:get_val(doc_spec, Children),						     
-		    build_app_docs(PackageName, TmpPackageDirPath, ErtsVsn, DocSpec, Children),
+		    build_app_docs(PackageName, TmpPackageDirPath, ErtsVsn, Children),
 		    copy_over_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
 		_Error ->
 		    ok
@@ -292,7 +290,8 @@ transition_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, TransitionS
 	    ?ERROR_MSG("~s failed validation~n", [FromPackagePath])
     end.
 
-build_app_docs(PackageName, TmpPackageDirPath, ErtsVsn, DocSpec, Children) ->
+build_app_docs(PackageName, TmpPackageDirPath, ErtsVsn, Children) ->
+    DocSpec = fs_lists:get_val(doc_spec, Children),						     
     NoDocList = fs_lists:get_val(no_doc_list, Children),						     
     case catch lists:member({app, list_to_atom(PackageName)}, NoDocList) of
 	true  ->
@@ -303,7 +302,7 @@ build_app_docs(PackageName, TmpPackageDirPath, ErtsVsn, DocSpec, Children) ->
     end.
     
 copy_over_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, ToRepo) ->
-    PackageFileSuffix      = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
+    PackageFileSuffix  = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
     DotAppFileSuffix   = ewr_repo_paths:dot_app_file_suffix(ErtsVsn, PackageName, PackageVsn),
     FromPackagePath    = ewl_file:join_paths(FromRepo, PackageFileSuffix),
     ToPackagePath      = ewl_file:join_paths(ToRepo, PackageFileSuffix),
@@ -327,7 +326,7 @@ transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, TransitionSpec)
     FromRepo = TransitionSpec#transition_spec.from_repo,
     ToRepo   = TransitionSpec#transition_spec.to_repo,
     Children = TransitionSpec#transition_spec.children,
-    PackageFileSuffix     = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
+    PackageFileSuffix = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
     FromPackagePath   = ewl_file:join_paths(FromRepo, PackageFileSuffix),
     TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
 
@@ -335,8 +334,7 @@ transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, TransitionSpec)
 	true ->
 	    case por_auth:validate_signature(Side, PackageFileSuffix, TransitionSpec) of
 		ok -> 
-		    DocSpec = fs_lists:get_val(doc_spec, Children),						     
-		    build_release_docs(PackageName, TmpPackageDirPath, ErtsVsn, DocSpec, Children),
+		    build_release_docs(PackageName, TmpPackageDirPath, ErtsVsn, Children),
 		    copy_over_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
 		_Error ->
 		    ok
@@ -345,7 +343,8 @@ transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, TransitionSpec)
 	    ?ERROR_MSG("~s failed validation~n", [FromPackagePath])
     end.
 
-build_release_docs(PackageName, TmpPackageDirPath, ErtsVsn, DocSpec, Children) ->
+build_release_docs(PackageName, TmpPackageDirPath, ErtsVsn, Children) ->
+    DocSpec   = fs_lists:get_val(doc_spec, Children),						     
     NoDocList = fs_lists:get_val(no_doc_list, Children),						     
     case catch lists:member({release, list_to_atom(PackageName)}, NoDocList) of
 	true  ->
@@ -356,7 +355,7 @@ build_release_docs(PackageName, TmpPackageDirPath, ErtsVsn, DocSpec, Children) -
     end.
 
 copy_over_release(ErtsVsn, Area, "releases" = Side, PackageName, PackageVsn, FromRepo, ToRepo) ->
-    PackageFileSuffix       = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
+    PackageFileSuffix   = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
     DotRelFileSuffix    = ewr_repo_paths:dot_rel_file_suffix(ErtsVsn, PackageName, PackageVsn),
     ControlFileSuffix   = ewr_repo_paths:release_control_file_suffix(ErtsVsn, PackageName, PackageVsn),
     FromPackagePath     = ewl_file:join_paths(FromRepo, PackageFileSuffix),
@@ -365,7 +364,6 @@ copy_over_release(ErtsVsn, Area, "releases" = Side, PackageName, PackageVsn, Fro
     ToDotRelFilePath    = ewl_file:join_paths(ToRepo, DotRelFileSuffix),
     FromControlFilePath = ewl_file:join_paths(FromRepo, ControlFileSuffix),
     ToControlFilePath   = ewl_file:join_paths(ToRepo, ControlFileSuffix),
-
     
     ?INFO_MSG("copy dir from ~s to ~s~n", [FromPackagePath, ToPackagePath]),
     ?INFO_MSG("copy dir from ~s to ~s~n", [FromDotRelFilePath, ToDotRelFilePath]),
