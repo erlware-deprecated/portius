@@ -5,7 +5,7 @@
   {description, "Manage the erlware repos"},
 
   % The version of the applicaton
-  {vsn, "0.5.2.17"},
+  {vsn, "0.5.2.18"},
 
   % All modules used by the application.
   {modules,

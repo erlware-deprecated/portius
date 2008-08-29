@@ -6,18 +6,18 @@ PREFIX=$(cd $(dirname $(dirname $PROG)); pwd)
 
 #### Fill in values for these variables ####
 REL_NAME=portius
-REL_VSN=0.5.2.17
+REL_VSN=0.5.2.18
 ERTS_VSN=5.5.5
 INVOCATION_SUFFIX="-detached -prefix $PREFIX"
 ###########################################
 
 PREFIX=$(cd $(dirname $(dirname $0)); pwd)
 
-export ROOTDIR=$PREFIX/application_packages/$ERTS_VSN
-export BINDIR=$PREFIX/erts_packages/erts-$ERTS_VSN/bin
+export ROOTDIR=$PREFIX/packages/$ERTS_VSN
+export BINDIR=$PREFIX/packages/$ERTS_VSN/erts-$ERTS_VSN/bin
 export EMU=beam
 export PROGNAME=erl
-export LD_LIBRARY_PATH=$PREFIX/erts/$ERTS_VSN/lib
+export LD_LIBRARY_PATH=$PREFIX/packages/$ERTS_VSN/erts-$ERTS_VSN/lib
 
 REL_DIR=$PREFIX/release_packages/$REL_NAME-$REL_VSN/release
 

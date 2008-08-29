@@ -163,7 +163,8 @@ massage_app_specs([{AppName, Attributes}|T], DocRoot) ->
 massage_app_specs([], _DocRoot) ->
     [].
 
-group_erts_vsns(Attributes) -> lists:reverse(group_erts_vsns(Attributes, [])).
+group_erts_vsns(Attributes) ->
+    lists:reverse(group_erts_vsns(Attributes, [])).
 
 group_erts_vsns([{AppVsn, ErtsVsn, _}|T], [{AppVsn, ErtsVsns, AppPath}|AccT]) ->
     group_erts_vsns(T, [{AppVsn, lists:flatten([ErtsVsns, ", ", ErtsVsn]), AppPath}|AccT]);
