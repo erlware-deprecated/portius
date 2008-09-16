@@ -18,8 +18,8 @@
 	 create_app_index_page/1
 	]).
 
--include("eunit.hrl").
--include("macros.hrl").
+-include_lib("eunit/include/eunit.hrl").
+-include_lib("fslib/include/macros.hrl").
 -include("portius.hrl").
 
 -define(VERSION_HISTORY_DEPTH, 5).

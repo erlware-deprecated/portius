@@ -23,7 +23,7 @@
 	 file_paths/1
 	]).
 
--include("eunit.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 %%====================================================================
 %% API

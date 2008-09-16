@@ -15,7 +15,7 @@
 	]).
 
 -include("portius.hrl").
--include("macros.hrl").
+-include_lib("fslib/include/macros.hrl").
 
 %%%===================================================================
 %%% API

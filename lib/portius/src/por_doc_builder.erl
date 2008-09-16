@@ -15,7 +15,7 @@
 	 build_app_docs/3
 	]).
 
--include("macros.hrl").
+-include_lib("fslib/include/macros.hrl").
 -include("portius.hrl").
 
 %%%===================================================================

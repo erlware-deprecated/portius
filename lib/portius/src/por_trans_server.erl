@@ -23,7 +23,7 @@
 	 fetch_no_doc_list/1
 	]).
 
--include("macros.hrl").
+-include_lib("fslib/include/macros.hrl").
 -include("portius.hrl").
 
 -define(SERVER, ?MODULE). 
