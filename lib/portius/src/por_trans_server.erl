@@ -63,6 +63,7 @@ start_link(TransitionId, FromRepoDirPath, ToRepoDirPath, SignType) ->
 %%--------------------------------------------------------------------
 init([TransitionId, FromRepoDirPath, ToRepoDirPath, SignType]) ->
     {ok, Timeout} = gas:get_env(portius, inspection_frequency),
+    {ok, Email}   = gas:get_env(portius, email, undefined),
     ok = ewl_file:mkdir_p(ToRepoDirPath),
     ToTree = por_file_tree:create_tree(ToRepoDirPath),
     ?INFO_MSG("created initial tree from ~s~n", [ToRepoDirPath]),
@@ -72,11 +73,10 @@ init([TransitionId, FromRepoDirPath, ToRepoDirPath, SignType]) ->
       from_repo = FromRepoDirPath, 
       to_repo   = ToRepoDirPath,
       sign_type = SignType,
+      email = Email,
       children  = fetch_children(TransitionId)
      },
 
-    ?INFO_MSG("TransitionSpec ~p~n", [TransitionSpec]),
-    
     por_doc_builder:build_index_docs(fs_lists:get_val(doc_spec, TransitionSpec#transition_spec.children)),						     
     State = #state{transition_spec      = TransitionSpec, 
 		   inspection_frequency = Timeout, 
@@ -134,7 +134,7 @@ handle_info(_Info, State) ->
 		     from_repo = FR,
 		     children = Children} = TransitionSpec,
     
-    Tree     = por_file_tree:create_tree(FR),
+    Tree     = create_tree(FR),
     TreeDiff = por_file_tree:find_additions(LastTree, Tree),
     handle_transitions(TreeDiff, TransitionSpec),
 
@@ -194,9 +194,18 @@ handle_transitions(TreeDiff, TransitionSpec) ->
 			      {match, _, _} -> 
 				  ok;
 			      _ -> 
+				  Email       = TransitionSpec#transition_spec.email,
+				  PackageName = filename:basename(FilePath),
 				  case catch handle_transition(FilePath, TransitionSpec) of
-				      ok    -> ok;
-				      Error -> ?ERROR_MSG("handle transition returned error ~p~n", [Error])
+				      ok -> 
+					  Subject = "Publish success for " ++ PackageName,
+					  fs_email:send_async("no-reply@erlware.com", Email, Subject, "success"),
+					  ok;
+				      Error ->
+					  Subject = "Publish failure for " ++ PackageName,
+					  Body    = lists:flatten(io_lib:fwrite("~p~n", [Error])),
+					  fs_email:send_async("no-reply@erlware.com", Email, Subject, Body),
+					  ?ERROR_MSG("handle transition returned error ~p~n", [Error])
 				  end
 			  end
 		  end, NewFiles).
@@ -272,7 +281,7 @@ transition_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, TransitionS
     FromRepo = TransitionSpec#transition_spec.from_repo,
     ToRepo   = TransitionSpec#transition_spec.to_repo,
     Children = TransitionSpec#transition_spec.children,
-    PackageFileSuffix     = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
+    PackageFileSuffix = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
     FromPackagePath   = ewl_file:join_paths(FromRepo, PackageFileSuffix),
     TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
 
@@ -429,4 +438,24 @@ fetch_signatures(TransitionId) ->
 	    undefined
     end.
 
-			
+create_tree(FromRepoDirPath) ->
+    Fun = 
+	fun(FromDirPath) ->
+		try
+		    Elements           = ewr_repo_paths:decompose_suffix(FromDirPath),
+		    ErtsVsn            = fs_lists:get_val(erts_vsn, Elements),
+		    Side               = fs_lists:get_val(side, Elements),
+		    PackageName        = fs_lists:get_val(package_name, Elements),
+		    PackageVsn         = fs_lists:get_val(package_vsn, Elements),
+		    CheckSumFileSuffix = ewr_repo_paths:checksum_file_suffix(ErtsVsn, Side, PackageName, PackageVsn),
+		    CheckSumFilePath   = filename:join(FromRepoDirPath, CheckSumFileSuffix),
+		    ?INFO_MSG("check for check sum at ~p for ~s~n", [CheckSumFilePath, FromDirPath]),
+		    filelib:is_dir(CheckSumFileSuffix)
+		catch
+		    _C:E ->
+			?ERROR_MSG("caught error ~p~n", [E]),
+			true
+		end
+	end,
+    por_file_tree:create_tree(FromRepoDirPath, Fun).
+				      

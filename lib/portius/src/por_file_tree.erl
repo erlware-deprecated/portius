@@ -19,10 +19,12 @@
 %% API
 -export([
 	 create_tree/1,
+	 create_tree/2,
 	 find_additions/2,
 	 file_paths/1
 	]).
 
+-include_lib("fslib/include/macros.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 %%====================================================================
@@ -30,24 +32,38 @@
 %%====================================================================
 %%--------------------------------------------------------------------
 %% @doc Create a term() tree structure represeting a file system tree.
-%% @spec create_tree(FromDirPath) -> Tree
+%%      The ValidationFun is called on all files and it determines if
+%%      the file in question is to be placed in the final tree
+%%      structure.
+%% @spec create_tree(FromDirPath, ValidationFun) -> Tree
 %% @end
 %%--------------------------------------------------------------------
-create_tree(FromDirPath) ->
+create_tree(FromDirPath, ValidationFun) ->
     FromDirName = filename:basename(FromDirPath),
     case filelib:is_dir(FromDirPath) of
 	false ->
-	    {file, FromDirName};
+	    case ValidationFun(FromDirPath) of
+		true ->
+		    {file, FromDirName};
+		false ->
+		    []
+	    end;
 	true ->
 	    {dir, FromDirName, lists:foldl(fun(CheckFromDirPath, Acc) when CheckFromDirPath == FromDirPath -> 
 					       Acc;
-					  (ChildFromDirPath, Acc) -> 
-					       case create_tree(ChildFromDirPath) of
-						   []  -> Acc;
-						   Res -> [Res|Acc]
-					       end
-				       end, [], filelib:wildcard(FromDirPath ++ "/*"))}
+					      (ChildFromDirPath, Acc) -> 
+						   case create_tree(ChildFromDirPath) of
+						       []  -> Acc;
+						       Res -> [Res|Acc]
+						   end
+					   end, [], filelib:wildcard(FromDirPath ++ "/*"))}
     end.
+
+%% @spec create_tree(FromDirPath) -> Tree
+%% @equiv create_tree(FromDirPath, true)
+create_tree(FromDirPath) ->
+    create_tree(FromDirPath, fun(_) -> true end).
+
 
 %%--------------------------------------------------------------------
 %% @doc Return a tree containing what is present in tree2 that is not present in tree1.

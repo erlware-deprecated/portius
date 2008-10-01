@@ -87,6 +87,7 @@ get_signature_from_file(Type, PackageFileSuffix, TransitionSpec) ->
     end.
 
 signature_file_path(Type, PackageFileSuffix, TransitionSpec) ->
+    ?INFO_MSG("(~p, ~p, ~p)~n", [Type, PackageFileSuffix, TransitionSpec]),
     #transition_spec{from_repo  = FromRepoDirPath} = TransitionSpec,
     Elements = ewr_repo_paths:decompose_suffix(PackageFileSuffix),
     ErtsVsn  = fs_lists:get_val(erts_vsn, Elements),

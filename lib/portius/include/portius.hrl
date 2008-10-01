@@ -4,6 +4,7 @@
 	  from_repo,
 	  to_repo,
 	  sign_type,
+	  email,
 	  children
 	 }).
 
