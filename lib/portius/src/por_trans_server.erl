@@ -442,7 +442,7 @@ create_tree(FromRepoDirPath) ->
     Fun = 
 	fun(FromDirPath) ->
 		try
-		    Elements           = ewr_repo_paths:decompose_suffix(FromDirPath),
+		    Elements           = ewr_repo_paths:decompose_suffix(chop_to_erts_vsn(FromDirPath)),
 		    ErtsVsn            = fs_lists:get_val(erts_vsn, Elements),
 		    Side               = fs_lists:get_val(side, Elements),
 		    PackageName        = fs_lists:get_val(package_name, Elements),
@@ -459,3 +459,17 @@ create_tree(FromRepoDirPath) ->
 	end,
     por_file_tree:create_tree(FromRepoDirPath, Fun).
 				      
+
+chop_to_erts_vsn(FromRepoDirPath) ->
+    Tokens = string:tokens(FromRepoDirPath, "/"),
+    chop_to_erts_vsn2(Tokens).
+
+chop_to_erts_vsn2([ErtsVsn|T]) ->
+    case regexp:match(ErtsVsn, "^[0-9]+\.[0-9]+\(\.[0-9]+\)?") of
+	{match, _, _} ->
+	    string:join([ErtsVsn|T], "/");
+	nomatch ->
+	    chop_to_erts_vsn2(T)
+    end;
+chop_to_erts_vsn2([]) ->
+    {error, bad_suffix}.
