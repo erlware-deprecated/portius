@@ -25,6 +25,7 @@
 
 -include_lib("fslib/include/macros.hrl").
 -include("portius.hrl").
+-include("eunit.hrl").
 
 -define(SERVER, ?MODULE). 
 
@@ -442,13 +443,14 @@ create_tree(FromRepoDirPath) ->
     Fun = 
 	fun(FromDirPath) ->
 		try
-		    Elements           = ewr_repo_paths:decompose_suffix(chop_to_erts_vsn(FromDirPath)),
+		    {ok, {Prefix, Suffix}} = chop_to_erts_vsn(FromDirPath),
+		    Elements           = ewr_repo_paths:decompose_suffix(Suffix),
 		    ErtsVsn            = fs_lists:get_val(erts_vsn, Elements),
 		    Side               = fs_lists:get_val(side, Elements),
 		    PackageName        = fs_lists:get_val(package_name, Elements),
 		    PackageVsn         = fs_lists:get_val(package_vsn, Elements),
-		    CheckSumFileSuffix = ewr_repo_paths:checksum_file_suffix(ErtsVsn, Side, PackageName, PackageVsn),
-		    CheckSumFilePath   = filename:join(FromRepoDirPath, CheckSumFileSuffix),
+		    [_|CheckSumFileSuffix] = ewr_repo_paths:checksum_file_suffix(ErtsVsn, Side, PackageName, PackageVsn),
+		    CheckSumFilePath   = filename:join(Prefix, CheckSumFileSuffix),
 		    ?INFO_MSG("check for check sum at ~p for ~s~n", [CheckSumFilePath, FromDirPath]),
 		    filelib:is_dir(CheckSumFileSuffix)
 		catch
@@ -462,14 +464,35 @@ create_tree(FromRepoDirPath) ->
 
 chop_to_erts_vsn(FromRepoDirPath) ->
     Tokens = string:tokens(FromRepoDirPath, "/"),
-    chop_to_erts_vsn2(Tokens).
+    chop_to_erts_vsn2(Tokens, "").
 
-chop_to_erts_vsn2([ErtsVsn|T]) ->
+chop_to_erts_vsn2([ErtsVsn|T], Front) ->
     case regexp:match(ErtsVsn, "^[0-9]+\.[0-9]+\(\.[0-9]+\)?") of
 	{match, _, _} ->
-	    string:join([ErtsVsn|T], "/");
+	    {ok, {Front, string:join([ErtsVsn|T], "/")}};
 	nomatch ->
-	    chop_to_erts_vsn2(T)
+	    chop_to_erts_vsn2(T, Front ++ "/" ++ ErtsVsn)
     end;
-chop_to_erts_vsn2([]) ->
+chop_to_erts_vsn2([], _) ->
     {error, bad_suffix}.
+
+%%====================================================================
+%% Test functions
+%%====================================================================
+chop_to_erts_vsn_test() ->
+    {ok, {Prefix, Suffix}} = chop_to_erts_vsn("/Users/martinjlogan/repo/pub/5.6.3/Generic/lib/portius/4.5.6/portius.tar.gz"),
+    ?assertMatch("/Users/martinjlogan/repo/pub", Prefix),
+    ?assertMatch("5.6.3/Generic/lib/portius/4.5.6/portius.tar.gz", Suffix),
+    Elements           = ewr_repo_paths:decompose_suffix(Suffix),
+    ErtsVsn            = fs_lists:get_val(erts_vsn, Elements),
+    ?assertMatch("5.6.3", ErtsVsn),
+    Side               = fs_lists:get_val(side, Elements),
+    ?assertMatch("lib", Side),
+    PackageName        = fs_lists:get_val(package_name, Elements),
+    ?assertMatch("portius", PackageName),
+    PackageVsn         = fs_lists:get_val(package_vsn, Elements),
+    ?assertMatch("4.5.6", PackageVsn),
+    [_|CheckSumFileSuffix] = ewr_repo_paths:checksum_file_suffix(ErtsVsn, Side, PackageName, PackageVsn),
+    ?assertMatch("5.6.3/Meta/portius/4.5.6/checksum", CheckSumFileSuffix),
+    CheckSumFilePath   = filename:join([Prefix, CheckSumFileSuffix]),
+    ?assertMatch("/Users/martinjlogan/repo/pub/5.6.3/Meta/portius/4.5.6/checksum", CheckSumFilePath).
