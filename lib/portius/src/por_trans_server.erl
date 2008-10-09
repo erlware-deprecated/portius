@@ -191,7 +191,7 @@ handle_transitions(TreeDiff, TransitionSpec) ->
 			 end, por_file_tree:file_paths(TreeDiff)),
     ?INFO_MSG("Files to be transfered ~p~n",[NewFiles]),
     lists:foreach(fun(FilePath) ->
-			  case regexp:match(FilePath, "(.*Meta.*|checksum)") of
+			  case regexp:match(FilePath, "(.*Meta.*|checksum|signature)") of
 			      {match, _, _} -> 
 				  ok;
 			      _ -> 
