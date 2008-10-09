@@ -191,7 +191,7 @@ handle_transitions(TreeDiff, TransitionSpec) ->
 			 end, por_file_tree:file_paths(TreeDiff)),
     ?INFO_MSG("Files to be transfered ~p~n",[NewFiles]),
     lists:foreach(fun(FilePath) ->
-			  case regexp:match(FilePath, ".*Meta.*") of
+			  case regexp:match(FilePath, "(.*Meta.*|checksum)") of
 			      {match, _, _} -> 
 				  ok;
 			      _ -> 
@@ -248,7 +248,6 @@ transition_erts(PackageFileSuffix, TransitionSpec) ->
     ErtsVsn  = fs_lists:get_val(erts_vsn, Elements),
     Area     = fs_lists:get_val(area, Elements),
 
-    PackageFileSuffix     = ewr_repo_paths:erts_package_suffix(ErtsVsn, Area),
     FromPackagePath   = ewl_file:join_paths(FromRepoDirPath, PackageFileSuffix),
     TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
 
@@ -443,19 +442,29 @@ create_tree(FromRepoDirPath) ->
     Fun = 
 	fun(FromDirPath) ->
 		try
-		    {ok, {Prefix, Suffix}} = chop_to_erts_vsn(FromDirPath),
-		    Elements           = ewr_repo_paths:decompose_suffix(Suffix),
-		    ErtsVsn            = fs_lists:get_val(erts_vsn, Elements),
-		    Side               = fs_lists:get_val(side, Elements),
-		    PackageName        = fs_lists:get_val(package_name, Elements),
-		    PackageVsn         = fs_lists:get_val(package_vsn, Elements),
-		    [_|CheckSumFileSuffix] = ewr_repo_paths:checksum_file_suffix(ErtsVsn, Side, PackageName, PackageVsn),
-		    CheckSumFilePath   = filename:join(Prefix, CheckSumFileSuffix),
-		    ?INFO_MSG("check for check sum at ~p for ~s~n", [CheckSumFilePath, FromDirPath]),
-		    filelib:is_dir(CheckSumFileSuffix)
+		    case regexp:match(FromDirPath, "erts\..*") of
+			{match, _, _} ->
+			    {ok, {Prefix, Suffix}} = chop_to_erts_vsn(FromDirPath),
+			    Elements = ewr_repo_paths:decompose_suffix(Suffix),
+			    ErtsVsn  = fs_lists:get_val(erts_vsn, Elements),
+			    Area     = fs_lists:get_val(area, Elements),
+			    [_|CheckSumFileSuffix] = ewr_repo_paths:erts_checksum_file_suffix(ErtsVsn, Area),
+			    CheckSumFilePath = filename:join(Prefix, CheckSumFileSuffix),
+			    filelib:is_file(CheckSumFilePath);
+			nomatch ->
+			    {ok, {Prefix, Suffix}} = chop_to_erts_vsn(FromDirPath),
+			    Elements           = ewr_repo_paths:decompose_suffix(Suffix),
+			    ErtsVsn            = fs_lists:get_val(erts_vsn, Elements),
+			    Side               = fs_lists:get_val(side, Elements),
+			    PackageName        = fs_lists:get_val(package_name, Elements),
+			    PackageVsn         = fs_lists:get_val(package_vsn, Elements),
+			    [_|CheckSumFileSuffix] =
+				ewr_repo_paths:checksum_file_suffix(ErtsVsn, Side, PackageName, PackageVsn),
+			    CheckSumFilePath = filename:join(Prefix, CheckSumFileSuffix),
+			    filelib:is_file(CheckSumFilePath)
+		    end
 		catch
-		    _C:E ->
-			?ERROR_MSG("caught error ~p~n", [E]),
+		    _C:_E ->
 			true
 		end
 	end,
@@ -480,19 +489,20 @@ chop_to_erts_vsn2([], _) ->
 %% Test functions
 %%====================================================================
 chop_to_erts_vsn_test() ->
-    {ok, {Prefix, Suffix}} = chop_to_erts_vsn("/Users/martinjlogan/repo/pub/5.6.3/Generic/lib/portius/4.5.6/portius.tar.gz"),
-    ?assertMatch("/Users/martinjlogan/repo/pub", Prefix),
-    ?assertMatch("5.6.3/Generic/lib/portius/4.5.6/portius.tar.gz", Suffix),
+    {ok, {Prefix, Suffix}} =
+	chop_to_erts_vsn("/Users/martinjlogan/repo/writable/5.6.3/Generic/lib/faxien/0.37.2.0/faxien.tar.gz"),
+    ?assertMatch("/Users/martinjlogan/repo/writable", Prefix),
+    ?assertMatch("5.6.3/Generic/lib/faxien/0.37.2.0/faxien.tar.gz", Suffix),
     Elements           = ewr_repo_paths:decompose_suffix(Suffix),
     ErtsVsn            = fs_lists:get_val(erts_vsn, Elements),
     ?assertMatch("5.6.3", ErtsVsn),
     Side               = fs_lists:get_val(side, Elements),
     ?assertMatch("lib", Side),
     PackageName        = fs_lists:get_val(package_name, Elements),
-    ?assertMatch("portius", PackageName),
+    ?assertMatch("faxien", PackageName),
     PackageVsn         = fs_lists:get_val(package_vsn, Elements),
-    ?assertMatch("4.5.6", PackageVsn),
+    ?assertMatch("0.37.2.0", PackageVsn),
     [_|CheckSumFileSuffix] = ewr_repo_paths:checksum_file_suffix(ErtsVsn, Side, PackageName, PackageVsn),
-    ?assertMatch("5.6.3/Meta/portius/4.5.6/checksum", CheckSumFileSuffix),
+    ?assertMatch("5.6.3/Meta/faxien/0.37.2.0/checksum", CheckSumFileSuffix),
     CheckSumFilePath   = filename:join([Prefix, CheckSumFileSuffix]),
-    ?assertMatch("/Users/martinjlogan/repo/pub/5.6.3/Meta/portius/4.5.6/checksum", CheckSumFilePath).
+    ?assertMatch("/Users/martinjlogan/repo/writable/5.6.3/Meta/faxien/0.37.2.0/checksum", CheckSumFilePath).

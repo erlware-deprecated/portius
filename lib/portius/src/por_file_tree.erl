@@ -43,16 +43,14 @@ create_tree(FromDirPath, ValidationFun) ->
     case filelib:is_dir(FromDirPath) of
 	false ->
 	    case ValidationFun(FromDirPath) of
-		true ->
-		    {file, FromDirName};
-		false ->
-		    []
+		true  -> {file, FromDirName};
+		false -> []
 	    end;
 	true ->
 	    {dir, FromDirName, lists:foldl(fun(CheckFromDirPath, Acc) when CheckFromDirPath == FromDirPath -> 
 					       Acc;
 					      (ChildFromDirPath, Acc) -> 
-						   case create_tree(ChildFromDirPath) of
+						   case create_tree(ChildFromDirPath, ValidationFun) of
 						       []  -> Acc;
 						       Res -> [Res|Acc]
 						   end
