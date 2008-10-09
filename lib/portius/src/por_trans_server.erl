@@ -200,16 +200,22 @@ handle_transitions(TreeDiff, TransitionSpec) ->
 				  case catch handle_transition(FilePath, TransitionSpec) of
 				      ok -> 
 					  Subject = "Publish success for " ++ PackageName,
-					  fs_email:send_async("no-reply@erlware.com", Email, Subject, "success"),
+					  send_email(Email, Subject, "Success"),
 					  ok;
 				      Error ->
 					  Subject = "Publish failure for " ++ PackageName,
 					  Body    = lists:flatten(io_lib:fwrite("~p~n", [Error])),
-					  fs_email:send_async("no-reply@erlware.com", Email, Subject, Body),
+					  send_email(Email, Subject, Body),
 					  ?ERROR_MSG("handle transition returned error ~p~n", [Error])
 				  end
 			  end
 		  end, NewFiles).
+
+send_email(undefined, _Subject, _Body) ->
+    ok;
+send_email(To, Subject, Body) ->
+    fs_email:send_async("no-reply-erlware@erlware.com", To, Subject, Body).
+    
  				  
 handle_transition(PackageFileSuffix, TransitionSpec) ->
     case regexp:match(PackageFileSuffix, "/erts.") of
