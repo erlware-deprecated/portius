@@ -22,7 +22,7 @@
   {registered, []},
 
   % Applications that are to be started prior to this one.
-  {applications, [eunit, kernel, stdlib, sasl, gas, fslib, epkg, ewrepo, ewlib, sgte, edoc, cryptographic]},
+  {applications, [eunit, kernel, stdlib, sasl, gas, fslib, epkg, ewrepo, ewlib, sgte, edoc, cryptographic, repo_daemon]},
 
   % OTP application loader will load, but not start, included apps
   {included_applications, []},
@@ -31,6 +31,6 @@
   {env, []},
 
   % The Module and Args to start this application.
-  {mod, {por_app, []}}
+  {mod, {dd_app, []}}
  ]
 }.

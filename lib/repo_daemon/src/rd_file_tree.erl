@@ -14,7 +14,7 @@
 %%% @end
 %%% Created :  2 Jan 2008 by Martin Logan <martinjlogan@sixfoe>
 %%%-------------------------------------------------------------------
--module(por_file_tree).
+-module(rd_file_tree).
 
 %% API
 -export([

@@ -18,7 +18,7 @@
 %% External exports
 %%--------------------------------------------------------------------
 -export([
-	 start_link/1
+	 start_link/0
         ]).
 
 %%--------------------------------------------------------------------
@@ -42,10 +42,10 @@
 %%====================================================================
 %%--------------------------------------------------------------------
 %% @doc Starts the supervisor.
-%% @spec start_link(StartArgs) -> {ok, pid()} | Error
+%% @spec start_link() -> {ok, pid()} | Error
 %% @end
 %%--------------------------------------------------------------------
-start_link(_StartArgs) ->
+start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
 %%====================================================================
@@ -81,7 +81,7 @@ init([]) ->
 					release_index_file      = element(8, DocSpecTuple),
 				        no_doc_list             = fetch_no_doc_list(TransitionId)},
 			  {TransitionId,
-			   {dd_doc_server, start_link, DocSpec},
+			   {dd_doc_server, start_link, [DocSpec]},
 			   permanent,
 			   1000,
 			   worker,

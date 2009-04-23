@@ -56,10 +56,10 @@ start_link(TransitionId, FromRepoDirPath, ToRepoDirPath, SignType) ->
 %% @end
 %%--------------------------------------------------------------------
 init([TransitionId, FromRepoDirPath, ToRepoDirPath, SignType]) ->
-    {ok, Timeout} = gas:get_env(portius, inspection_frequency),
-    {ok, Email}   = gas:get_env(portius, email, undefined),
+    {ok, Timeout} = gas:get_env(repo_daemon, inspection_frequency),
+    {ok, Email}   = gas:get_env(repo_daemon, email, undefined),
     ok = ewl_file:mkdir_p(ToRepoDirPath),
-    ToTree = por_file_tree:create_tree(ToRepoDirPath),
+    ToTree = rd_file_tree:create_tree(ToRepoDirPath),
     ?INFO_MSG("created initial tree from ~s~n", [ToRepoDirPath]),
 
     TransitionSpec = #transition_spec{
@@ -123,7 +123,7 @@ handle_info(_Info, State) ->
 	   last_tree            = LastTree} = State,
 
     Tree     = create_tree(TransitionSpec#transition_spec.from_repo),
-    TreeDiff = por_file_tree:find_additions(LastTree, Tree),
+    TreeDiff = rd_file_tree:find_additions(LastTree, Tree),
     handle_transitions(TreeDiff, TransitionSpec),
 
     {noreply, State#state{last_tree = Tree}, Timeout}.
@@ -169,7 +169,7 @@ handle_transitions(TreeDiff, TransitionSpec) ->
     NewFiles = lists:map(fun(Path) -> 
 				 {ok, {_, Rest}} = fs_lists:separate_by_token(Path, "/"),
 				 Rest
-			 end, por_file_tree:file_paths(TreeDiff)),
+			 end, rd_file_tree:file_paths(TreeDiff)),
     ?INFO_MSG("Files to be transfered ~p~n",[NewFiles]),
     lists:foreach(fun(FilePath) ->
 			  case regexp:match(FilePath, "(.*Meta.*|checksum|signature)") of
@@ -365,7 +365,7 @@ create_tree(FromRepoDirPath) ->
 			true
 		end
 	end,
-    por_file_tree:create_tree(FromRepoDirPath, Fun).
+    rd_file_tree:create_tree(FromRepoDirPath, Fun).
 				      
 
 chop_to_erts_vsn(FromRepoDirPath) ->

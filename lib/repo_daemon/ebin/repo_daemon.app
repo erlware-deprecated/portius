@@ -12,6 +12,7 @@
    [
     rd_app,
     rd_sup,
+    rd_file_tree,
     rd_trans_server
    ]},
 
@@ -28,6 +29,6 @@
   {env, []},
 
   % The Module and Args to start this application.
-  {mod, {por_app, []}}
+  {mod, {rd_app, []}}
  ]
 }.

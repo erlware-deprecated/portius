@@ -53,14 +53,20 @@ start_link(DocSpec) ->
 %% @end
 %%--------------------------------------------------------------------
 init(DocSpec) ->
-    {ok, Timeout} = gas:get_env(portius, inspection_frequency),
+    {ok, Timeout} = gas:get_env(doc_daemon, inspection_frequency),
 
+    io:format("ini init~n"),
     RepoDirPath = DocSpec#doc_spec.repo_dir_path,
+    io:format("ini init~n"),
     ok = ewl_file:mkdir_p(RepoDirPath),
-    Tree = por_file_tree:create_tree(RepoDirPath),
+    io:format("ini init~n"),
+    Tree = rd_file_tree:create_tree(RepoDirPath),
+    io:format("ini init~n"),
     ?INFO_MSG("created initial tree from ~s~n", [RepoDirPath]),
+    io:format("ini init~n"),
 
     dd_doc_builder:build_index_docs(DocSpec),
+    io:format("ini init~n"),
 
     {ok, #state{doc_spec = DocSpec, inspection_frequency = Timeout, last_tree = Tree}, Timeout}.
 
@@ -110,8 +116,8 @@ handle_info(timeout, State) ->
 	   inspection_frequency = Timeout, 
 	   last_tree            = LastTree} = State,
 
-    Tree     = por_file_tree:create_tree(DocSpec#doc_spec.repo_dir_path),
-    TreeDiff = por_file_tree:find_additions(LastTree, Tree),
+    Tree     = rd_file_tree:create_tree(DocSpec#doc_spec.repo_dir_path),
+    TreeDiff = rd_file_tree:find_additions(LastTree, Tree),
     handle_transitions(TreeDiff, DocSpec),
 
     {noreply, State#state{last_tree = Tree}, Timeout}.
@@ -156,7 +162,7 @@ handle_transitions(TreeDiff, DocSpec) ->
 				 {ok, {_, Rest}} = fs_lists:separate_by_token(Path, "/"),
 				 Rest
 			 end,
-			 por_file_tree:file_paths(TreeDiff)),
+			 rd_file_tree:file_paths(TreeDiff)),
     ?INFO_MSG("Packages to generate docs for ~p~n",[NewFiles]),
     lists:foreach(fun(FilePath) ->
 			  case regexp:match(FilePath, "(.*Meta.*|checksum|signature)") of
@@ -246,7 +252,7 @@ build_release_docs(PackageName, TmpPackageDirPath, ErtsVsn, DocSpec) ->
 %			true
 %		end
 %	end,
-%    por_file_tree:create_tree(RepoDirPath, Fun).
+%    rd_file_tree:create_tree(RepoDirPath, Fun).
 %				      
 
 %chop_to_erts_vsn(RepoDirPath) ->
