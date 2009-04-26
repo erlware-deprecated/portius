@@ -139,7 +139,15 @@ create_renderable_specs(Specs, DocRoot) ->
 massage_app_specs([{AppName, Attributes}|T], DocRoot) ->
     [{HighAppVsn, HighErtsVsn, HighAppPath}|AggregatedAttributes] = group_erts_vsns(sort_by_version(Attributes)),
 
-    {ok, ErlangVsn} = faxien:translate_version(erts, erlang, HighErtsVsn),
+    {ok, ErlangVsn} =
+	case faxien:translate_version(erts, erlang, HighErtsVsn) of
+	    error ->
+		?ERROR_MSG("error on erlang version translation for erts vsn ~p~n", [HighErtsVsn]),
+		{ok, "other"};
+	    Resp ->
+		Resp
+	end,
+    
     SpecList = [
 		{name, AppName}, 
 		{vsn, HighAppVsn}, 
