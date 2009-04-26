@@ -234,13 +234,17 @@ transition_erts(PackageFileSuffix, TransitionSpec) ->
     FromPackagePath   = ewl_file:join_paths(FromRepoDirPath, PackageFileSuffix),
     TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
 
-    case epkg_validation:is_package_erts(TmpPackageDirPath) of
-	true ->
-	    copy_over_erts(ErtsVsn, Area, FromRepoDirPath, ToRepoDirPath);
-	false ->
-	    ?ERROR_MSG("~s failed validation~n", [FromPackagePath]),
-	    {error, {failed_transition, FromPackagePath}}
-    end.
+    Result = 
+	case epkg_validation:is_package_erts(TmpPackageDirPath) of
+	    true ->
+		copy_over_erts(ErtsVsn, Area, FromRepoDirPath, ToRepoDirPath);
+	    false ->
+		?ERROR_MSG("~s failed validation~n", [FromPackagePath]),
+		{error, {failed_transition, FromPackagePath}}
+	end,
+
+    ewl_file:delete_dir(filename:dirname(TmpPackageDirPath)),
+    Result.
 
 copy_over_erts(ErtsVsn, Area, FromRepo, ToRepo) ->
     ErtsSuffix       = ewr_repo_paths:erts_package_suffix(ErtsVsn, Area),
@@ -265,13 +269,17 @@ transition_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, TransitionS
     FromPackagePath   = ewl_file:join_paths(FromRepo, PackageFileSuffix),
     TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
 
-    case epkg_validation:is_package_an_app(TmpPackageDirPath) of
-	true ->
-	    copy_over_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
-	false ->
-	    ?ERROR_MSG("~s failed validation~n", [FromPackagePath]),
-	    {error, {failed_transition, FromPackagePath}}
-    end.
+    Result = 
+	case epkg_validation:is_package_an_app(TmpPackageDirPath) of
+	    true ->
+		copy_over_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
+	    false ->
+		?ERROR_MSG("~s failed validation~n", [FromPackagePath]),
+		{error, {failed_transition, FromPackagePath}}
+	end,
+
+    ewl_file:delete_dir(filename:dirname(TmpPackageDirPath)),
+    Result.
 
 copy_over_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, ToRepo) ->
     PackageFileSuffix  = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
@@ -301,13 +309,17 @@ transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, TransitionSpec)
     FromPackagePath   = ewl_file:join_paths(FromRepo, PackageFileSuffix),
     TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
 
-    case epkg_validation:is_package_a_release(TmpPackageDirPath) of
-	true ->
-	    copy_over_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
-	false ->
-	    ?ERROR_MSG("~s failed validation~n", [FromPackagePath]),
-	    {error, {failed_transition, FromPackagePath}}
-    end.
+    Result = 
+	case epkg_validation:is_package_a_release(TmpPackageDirPath) of
+	    true ->
+		copy_over_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
+	    false ->
+		?ERROR_MSG("~s failed validation~n", [FromPackagePath]),
+		{error, {failed_transition, FromPackagePath}}
+	end,
+
+    ewl_file:delete_dir(filename:dirname(TmpPackageDirPath)),
+    Result.
 
 copy_over_release(ErtsVsn, Area, "releases" = Side, PackageName, PackageVsn, FromRepo, ToRepo) ->
     PackageFileSuffix   = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),

@@ -194,12 +194,14 @@ handle_generation(PackageFileSuffix, DocSpec) ->
 	    FromPackagePath   = ewl_file:join_paths(DocSpec#doc_spec.repo_dir_path, PackageFileSuffix),
 	    TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
 	    
-	    case Side of
-		"lib" ->
-		    build_app_docs(PackageName, TmpPackageDirPath, ErtsVsn, DocSpec);
-		"releases" ->
-		    build_release_docs(PackageName, TmpPackageDirPath, ErtsVsn, DocSpec)
-	    end
+	    Result = 
+		case Side of
+		    "lib"      -> build_app_docs(PackageName, TmpPackageDirPath, ErtsVsn, DocSpec);
+		    "releases" -> build_release_docs(PackageName, TmpPackageDirPath, ErtsVsn, DocSpec)
+		end,
+
+	    ewl_file:delete_dir(filename:dirname(TmpPackageDirPath)),
+	    Result
     end.
 
 build_app_docs(PackageName, TmpPackageDirPath, ErtsVsn, DocSpec) ->
