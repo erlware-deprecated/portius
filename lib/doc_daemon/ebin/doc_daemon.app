@@ -5,7 +5,7 @@
   {description, "Manage the creation of online docmentation for portius"},
 
   % The version of the applicaton
-  {vsn, "0.1.0.3"},
+  {vsn, "0.1.0.4"},
 
   % All modules used by the application.
   {modules,
