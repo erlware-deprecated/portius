@@ -114,7 +114,7 @@ get_part_template(ErlAppDocRootDirPath) ->
 	    {ok, IOD} = file:open(PartFilePath, [write]),
 	    Page = join(
 		     ["<li>", 
-		      " $appspec.name$ <a href=\"$appspec.path$\">$appspec.vsn$</a> (Erts: $appspec.erts_vsn$) ",
+		      " $appspec.name$ <a href=\"$appspec.path$\">$appspec.vsn$</a> (for: $appspec.erlang_vsn$) ",
 		      " <br><small>Older Versions: $appspec.back_vsns$</small><br/><br/>",
 		      "</li>"],
 		     "\n"),
@@ -139,9 +139,11 @@ create_renderable_specs(Specs, DocRoot) ->
 massage_app_specs([{AppName, Attributes}|T], DocRoot) ->
     [{HighAppVsn, HighErtsVsn, HighAppPath}|AggregatedAttributes] = group_erts_vsns(sort_by_version(Attributes)),
 
+    {ok, ErlangVsn} = faxien:translate_version(erts, erlang, HighErtsVsn),
     SpecList = [
 		{name, AppName}, 
 		{vsn, HighAppVsn}, 
+		{erlang_vsn, ErlangVsn}, 
 		{erts_vsn, HighErtsVsn}, 
 		{path, www_renderable_path(HighAppPath, DocRoot)}
 	       ],

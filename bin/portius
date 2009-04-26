@@ -8,8 +8,8 @@ PREFIX=$(cd $(dirname $(dirname $PROG)); pwd)
 REL_NAME=portius
 REL_VSN=0.8.0.1
 ERTS_VSN=5.6.3
-#INVOCATION_SUFFIX="-prefix $PREFIX"
-INVOCATION_SUFFIX="-detached -prefix $PREFIX"
+INVOCATION_SUFFIX="-prefix $PREFIX"
+#INVOCATION_SUFFIX="-detached -prefix $PREFIX"
 ###########################################
 
 PREFIX=$(cd $(dirname $(dirname $0)); pwd)
