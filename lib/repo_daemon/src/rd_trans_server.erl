@@ -11,7 +11,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/4]).
+-export([start_link/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
@@ -22,7 +22,7 @@
 
 -define(SERVER, ?MODULE). 
 
--record(state, {transition_spec, inspection_frequency, last_tree}).
+-record(state, {transition_spec, inspection_frequency, last_tree, email}).
 
 %%====================================================================
 %% API
@@ -31,14 +31,12 @@
 %% @doc
 %% Starts the server.
 %%
-%% @spec start_link(TransitionId::atom(), FromRepoDirPath, ToRepoDirPath, SignType) -> 
+%% @spec start_link(TransitionSpec) -> 
 %%       {ok, Pid} | ignore | {error, Error}
-%% where
-%%  SignType = signed | unsigned
 %% @end
 %%--------------------------------------------------------------------
-start_link(TransitionId, FromRepoDirPath, ToRepoDirPath, SignType) ->
-    gen_server:start_link(?MODULE, [TransitionId, FromRepoDirPath, ToRepoDirPath, SignType], []).
+start_link(TransitionSpec) ->
+    gen_server:start_link(?MODULE, [TransitionSpec], []).
 
 %%====================================================================
 %% gen_server callbacks
@@ -55,26 +53,21 @@ start_link(TransitionId, FromRepoDirPath, ToRepoDirPath, SignType) ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([TransitionId, FromRepoDirPath, ToRepoDirPath, SignType]) ->
+init([TransitionSpec]) ->
     {ok, Timeout} = gas:get_env(repo_daemon, inspection_frequency),
     {ok, Email}   = gas:get_env(repo_daemon, email, undefined),
+
+    ToRepoDirPath = TransitionSpec#transition_spec.to_repo,
     ok = ewl_file:mkdir_p(ToRepoDirPath),
     ToTree = rd_file_tree:create_tree(ToRepoDirPath),
     ?INFO_MSG("created initial tree from ~s~n", [ToRepoDirPath]),
 
-    TransitionSpec = #transition_spec{
-      transition_id = TransitionId,
-      from_repo = FromRepoDirPath, 
-      to_repo   = ToRepoDirPath,
-      sign_type = SignType,
-      email = Email
-     },
-
     State = #state{transition_spec      = TransitionSpec, 
 		   inspection_frequency = Timeout, 
-		   last_tree            = ToTree},
+		   last_tree            = ToTree,
+		   email                = Email},
 
-    {ok, State, Timeout}.
+    {ok, State, 0}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -120,11 +113,12 @@ handle_cast(_Msg, State) ->
 handle_info(_Info, State) ->
     #state{transition_spec      = TransitionSpec, 
 	   inspection_frequency = Timeout, 
-	   last_tree            = LastTree} = State,
+	   last_tree            = LastTree,
+	   email                = Email} = State,
 
     Tree     = create_tree(TransitionSpec#transition_spec.from_repo),
     TreeDiff = rd_file_tree:find_additions(LastTree, Tree),
-    handle_transitions(TreeDiff, TransitionSpec),
+    handle_transitions(TreeDiff, TransitionSpec, Email),
 
     {noreply, State#state{last_tree = Tree}, Timeout}.
 
@@ -163,34 +157,36 @@ code_change(_OldVsn, State, _Extra) ->
 %% @doc handle the transitions of all packages from one repo to another
 %% @end
 %%--------------------------------------------------------------------
-handle_transitions([], _TransitionSpec) ->
+handle_transitions([], _TransitionSpec, _Email) ->
     ok;
-handle_transitions(TreeDiff, TransitionSpec) ->
-    NewFiles = lists:map(fun(Path) -> 
-				 {ok, {_, Rest}} = fs_lists:separate_by_token(Path, "/"),
-				 Rest
-			 end, rd_file_tree:file_paths(TreeDiff)),
+handle_transitions(TreeDiff, TransitionSpec, Email) ->
+    NewFiles = lists:foldl(fun(Path, Acc) -> 
+				   {ok, {_, FilePath}} = fs_lists:separate_by_token(Path, "/"),
+				   case regexp:match(FilePath, "(.*Meta.*|checksum|signature)") of
+				       {match, _, _} -> 
+					   Acc;
+				       _ -> 
+					   [FilePath|Acc]
+				   end
+			   end,
+			   [],
+			   rd_file_tree:file_paths(TreeDiff)),
+
     ?INFO_MSG("Files to be transfered ~p~n",[NewFiles]),
+
     lists:foreach(fun(FilePath) ->
-			  case regexp:match(FilePath, "(.*Meta.*|checksum|signature)") of
-			      {match, _, _} -> 
-				  ok;
-			      _ -> 
-				  Email       = TransitionSpec#transition_spec.email,
-				  PackageName = filename:basename(FilePath),
-				  case catch handle_transition(FilePath, TransitionSpec) of
-				      ok -> 
-					  Subject = "Publish success for " ++ PackageName,
-					  send_email(Email, Subject, "Success"),
-					  ok;
-				      Error ->
-					  Subject = "Publish failure for " ++ PackageName,
-					  Body    = lists:flatten(io_lib:fwrite("~p~n", [Error])),
-					  send_email(Email, Subject, Body),
-					  ?ERROR_MSG("handle transition returned error ~p~n", [Error])
-				  end
-			  end
+			  PackageName = filename:basename(FilePath),
+			  handle_results(handle_transition(FilePath, TransitionSpec), PackageName, Email)
 		  end, NewFiles).
+
+handle_results(ok, PackageName, Email) ->
+    Subject = "Publish success for " ++ PackageName,
+    send_email(Email, Subject, "Success");
+handle_results(Error, PackageName, Email) ->
+    Subject = "Publish failure for " ++ PackageName,
+    Body    = lists:flatten(io_lib:fwrite("~p~n", [Error])),
+    send_email(Email, Subject, Body),
+    ?ERROR_MSG("handle transition returned error ~p~n", [Error]).
 
 send_email(undefined, _Subject, _Body) ->
     ok;

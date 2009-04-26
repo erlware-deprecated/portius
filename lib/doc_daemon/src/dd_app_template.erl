@@ -143,14 +143,14 @@ massage_app_specs([{AppName, Attributes}|T], DocRoot) ->
 		{name, AppName}, 
 		{vsn, HighAppVsn}, 
 		{erts_vsn, HighErtsVsn}, 
-		{path, renderable_path(HighAppPath, DocRoot)}
+		{path, www_renderable_path(HighAppPath, DocRoot)}
 	       ],
 
     Links = 
 	lists:flatten(
 	  lists:sublist(
 	    lists:map(fun({AppVsn, _ErtsVsn, AppPath}) -> 
-			      lists:flatten([" <a href=\"", renderable_path(AppPath, DocRoot),"\">", AppVsn, "</a> |"]) 
+			      lists:flatten([" <a href=\"", www_renderable_path(AppPath, DocRoot),"/index.html\">", AppVsn, "</a> |"]) 
 		      end, 
 		      AggregatedAttributes), ?VERSION_HISTORY_DEPTH)),
 
@@ -177,7 +177,7 @@ group_erts_vsns([], Acc) ->
 sort_by_version(Attributes) ->
     lists:sort(fun(A1, A2) -> ewr_util:is_version_greater(element(1, A1), element(1, A2)) end, Attributes).
     
-renderable_path(Path, DocRoot) ->
+www_renderable_path(Path, DocRoot) ->
     string:substr(Path, length(DocRoot) + 1, length(Path)).
 
 %%--------------------------------------------------------------------

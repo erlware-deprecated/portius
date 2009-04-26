@@ -12,6 +12,7 @@
 %%--------------------------------------------------------------------
 %% Include files
 %%--------------------------------------------------------------------
+-include("repo_daemon.hrl").
 
 %%--------------------------------------------------------------------
 %% External exports
@@ -67,9 +68,14 @@ init([]) ->
     
     ChildSpecs = 
 	lists:map(fun({TransitionId, FromRepoDirPath, ToRepoDirPath, SignType}) ->
-			  Args = [TransitionId, FromRepoDirPath, ToRepoDirPath, SignType],
+			  TransitionSpec = #transition_spec{
+			    transition_id = TransitionId,
+			    from_repo = FromRepoDirPath, 
+			    to_repo   = ToRepoDirPath,
+			    sign_type = SignType
+			   },
 			  {TransitionId,
-			   {rd_trans_server, start_link, Args},
+			   {rd_trans_server, start_link, [TransitionSpec]},
 			   permanent,
 			   1000,
 			   worker,

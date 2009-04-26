@@ -112,7 +112,13 @@ handle_info(timeout, State) ->
 
     Tree     = rd_file_tree:create_tree(DocSpec#doc_spec.repo_dir_path),
     TreeDiff = rd_file_tree:find_additions(LastTree, Tree),
-    handle_transitions(TreeDiff, DocSpec),
+    handle_generations(TreeDiff, DocSpec),
+
+    % If there were docs to create then regenerate the index docs
+    case TreeDiff of
+	[] -> ok;
+	_  -> dd_doc_builder:build_index_docs(DocSpec)
+    end,
 
     {noreply, State#state{last_tree = Tree}, Timeout}.
 
@@ -149,34 +155,37 @@ code_change(_OldVsn, State, _Extra) ->
 %% @doc Build docs for various packages in the repos
 %% @end
 %%--------------------------------------------------------------------
-handle_transitions([], _DocSpec) ->
+handle_generations([], _DocSpec) ->
     ok;
-handle_transitions(TreeDiff, DocSpec) ->
-    NewFiles = lists:map(fun(Path) -> 
-				 {ok, {_, Rest}} = fs_lists:separate_by_token(Path, "/"),
-				 Rest
-			 end,
-			 rd_file_tree:file_paths(TreeDiff)),
+handle_generations(TreeDiff, DocSpec) ->
+    NewFiles = lists:foldl(fun(Path, Acc) -> 
+				   {ok, {_, FilePath}} = fs_lists:separate_by_token(Path, "/"),
+				   case regexp:match(FilePath, "(.*Meta.*|checksum|signature)") of
+				       {match, _, _} -> 
+					   Acc;
+				       _ -> 
+					   [FilePath|Acc]
+				   end
+			   end,
+			   [],
+			   rd_file_tree:file_paths(TreeDiff)),
+
     ?INFO_MSG("Packages to generate docs for ~p~n",[NewFiles]),
+
     lists:foreach(fun(FilePath) ->
-			  case regexp:match(FilePath, "(.*Meta.*|checksum|signature)") of
-			      {match, _, _} -> 
-				  ok;
-			      _ -> 
-				  case catch handle_transition(FilePath, DocSpec) of
-				      ok    -> ok;
-				      Error -> ?ERROR_MSG("documenation generation error for ~p: ~p~n", [FilePath, Error])
-				  end
+			  case catch handle_generation(FilePath, DocSpec) of
+			      ok    -> ok;
+			      Error -> ?ERROR_MSG("documenation generation error for ~p: ~p~n", [FilePath, Error])
 			  end
 		  end, NewFiles).
 
-handle_transition(PackageFileSuffix, DocSpec) ->
+handle_generation(PackageFileSuffix, DocSpec) ->
     case regexp:match(PackageFileSuffix, "/erts.") of
 	{match, _, _} ->
 	    % No docs for erts 
 	    ok;
 	_ ->
-	    ?INFO_MSG("Transitioning ~p~n", [PackageFileSuffix]),
+	    ?INFO_MSG("Generating docs for ~p~n", [PackageFileSuffix]),
 	    Elements    = ewr_repo_paths:decompose_suffix(PackageFileSuffix),
 	    ErtsVsn     = fs_lists:get_val(erts_vsn, Elements),
 	    Side        = fs_lists:get_val(side, Elements),

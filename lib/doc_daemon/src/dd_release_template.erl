@@ -206,14 +206,14 @@ massage_release_specs([{RelName, Attributes}|T], DocRoot) ->
     SpecList = [
 		{name, RelName}, 
 		{vsn, HighRelVsn}, 
-		{path, renderable_path(HighRelPath, DocRoot)}
+		{path, www_renderable_path(HighRelPath, DocRoot)}
 	       ],
 
     Links = 
 	lists:flatten(
 	  lists:sublist(
 	    lists:map(fun({RelVsn, RelPath}) -> 
-			      lists:flatten([" <a href=\"", renderable_path(RelPath, DocRoot),"\">", RelVsn, "</a> |"]) 
+			      lists:flatten([" <a href=\"", www_renderable_path(RelPath, DocRoot),"\">", RelVsn, "</a> |"]) 
 		      end, 
 		      AggregatedAttributes), ?VERSION_HISTORY_DEPTH)),
 
@@ -229,7 +229,7 @@ massage_release_specs([], _DocRoot) ->
 sort_by_version(Attributes) ->
     lists:sort(fun(A1, A2) -> ewr_util:is_version_greater(element(1, A1), element(1, A2)) end, Attributes).
     
-renderable_path(Path, DocRoot) ->
+www_renderable_path(Path, DocRoot) ->
     string:substr(Path, length(DocRoot) + 1, length(Path)).
 
 %%--------------------------------------------------------------------
