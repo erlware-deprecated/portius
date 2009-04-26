@@ -18,6 +18,7 @@
 
 %% API
 -export([
+	 create_empty_tree/1,
 	 create_tree/1,
 	 create_tree/2,
 	 find_additions/2,
@@ -30,6 +31,14 @@
 %%====================================================================
 %% API
 %%====================================================================
+%%--------------------------------------------------------------------
+%% @doc Create an empty tree.
+%% @spec create_empty_tree(Directory) -> Tree
+%% @end
+%%--------------------------------------------------------------------
+create_empty_tree(DirName) ->
+    {dir, DirName, []}.
+
 %%--------------------------------------------------------------------
 %% @doc Create a term() tree structure represeting a file system tree.
 %%      The ValidationFun is called on all files and it determines if

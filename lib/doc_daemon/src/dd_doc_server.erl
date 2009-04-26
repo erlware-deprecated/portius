@@ -31,7 +31,7 @@
 %% @doc
 %% Starts the server
 %%
-%% @spec start_link() -> {ok, Pid} | ignore | {error, Error}
+%% @spec start_link(DocSpec) -> {ok, Pid} | ignore | {error, Error}
 %% @end
 %%--------------------------------------------------------------------
 start_link(DocSpec) ->
@@ -55,18 +55,12 @@ start_link(DocSpec) ->
 init(DocSpec) ->
     {ok, Timeout} = gas:get_env(doc_daemon, inspection_frequency),
 
-    io:format("ini init~n"),
     RepoDirPath = DocSpec#doc_spec.repo_dir_path,
-    io:format("ini init~n"),
-    ok = ewl_file:mkdir_p(RepoDirPath),
-    io:format("ini init~n"),
-    Tree = rd_file_tree:create_tree(RepoDirPath),
-    io:format("ini init~n"),
+    ok   = ewl_file:mkdir_p(RepoDirPath),
+    Tree = rd_file_tree:create_empty_tree(filename:basename(RepoDirPath)),
     ?INFO_MSG("created initial tree from ~s~n", [RepoDirPath]),
-    io:format("ini init~n"),
 
     dd_doc_builder:build_index_docs(DocSpec),
-    io:format("ini init~n"),
 
     {ok, #state{doc_spec = DocSpec, inspection_frequency = Timeout, last_tree = Tree}, Timeout}.
 
@@ -182,15 +176,12 @@ handle_transition(PackageFileSuffix, DocSpec) ->
 	    % No docs for erts 
 	    ok;
 	_ ->
-	    ?INFO_MSG("transitioning ~p~n", [PackageFileSuffix]),
+	    ?INFO_MSG("Transitioning ~p~n", [PackageFileSuffix]),
 	    Elements    = ewr_repo_paths:decompose_suffix(PackageFileSuffix),
 	    ErtsVsn     = fs_lists:get_val(erts_vsn, Elements),
 	    Side        = fs_lists:get_val(side, Elements),
-	    Area        = fs_lists:get_val(area, Elements),
 	    PackageName = fs_lists:get_val(package_name, Elements),
-	    PackageVsn  = fs_lists:get_val(package_vsn, Elements),
 
-	    PackageFileSuffix = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
 	    FromPackagePath   = ewl_file:join_paths(DocSpec#doc_spec.repo_dir_path, PackageFileSuffix),
 	    TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
 	    
