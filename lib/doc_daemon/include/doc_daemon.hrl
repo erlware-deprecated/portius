@@ -10,3 +10,9 @@
 	  release_index_file,
 	  no_doc_list
 	 }).
+
+-record(app_spec, {name, version, transition_id, package_path, doc_path, erts_vsn}).
+-record(release_spec, {name, version, transition_id, package_path, doc_path, erts_vsn}).
+
+
+		   

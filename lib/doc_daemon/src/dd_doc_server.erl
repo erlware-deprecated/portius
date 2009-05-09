@@ -160,8 +160,8 @@ handle_generations([], _DocSpec) ->
 handle_generations(TreeDiff, DocSpec) ->
     NewFiles = lists:foldl(fun(Path, Acc) -> 
 				   {ok, {_, FilePath}} = fs_lists:separate_by_token(Path, "/"),
-				   case regexp:match(FilePath, "(.*Meta.*|checksum|signature)") of
-				       {match, _, _} -> 
+				   case re:run(FilePath, "(.*Meta.*|checksum|signature)") of
+				       {match, _} -> 
 					   Acc;
 				       _ -> 
 					   [FilePath|Acc]
@@ -173,123 +173,110 @@ handle_generations(TreeDiff, DocSpec) ->
     ?INFO_MSG("Packages to generate docs for ~p~n",[NewFiles]),
 
     lists:foreach(fun(FilePath) ->
-			  case catch handle_generation(FilePath, DocSpec) of
-			      ok    -> ok;
-			      Error -> ?ERROR_MSG("documenation generation error for ~p: ~p~n", [FilePath, Error])
+			  try
+			      {ok, Spec} = handle_generation(FilePath, DocSpec),
+			      ?INFO_MSG("inserting spec ~p~n", [Spec]),
+			      dd_store:insert(Spec)
+			  catch
+			      _C:Error ->
+				  ?ERROR_MSG("documenation generation error for ~p: ~p~n", [FilePath, Error])
 			  end
 		  end, NewFiles).
 
 handle_generation(PackageFileSuffix, DocSpec) ->
-    case regexp:match(PackageFileSuffix, "/erts.") of
-	{match, _, _} ->
+    case re:run(PackageFileSuffix, "/erts.") of
+	{match, _} ->
 	    % No docs for erts 
-	    ok;
+	    throw(erts_skipped);
 	_ ->
 	    ?INFO_MSG("Generating docs for ~p~n", [PackageFileSuffix]),
 	    Elements    = ewr_repo_paths:decompose_suffix(PackageFileSuffix),
 	    ErtsVsn     = fs_lists:get_val(erts_vsn, Elements),
 	    Side        = fs_lists:get_val(side, Elements),
 	    PackageName = fs_lists:get_val(package_name, Elements),
+	    PackageVsn  = fs_lists:get_val(package_vsn, Elements),
 
 	    FromPackagePath   = ewl_file:join_paths(DocSpec#doc_spec.repo_dir_path, PackageFileSuffix),
 	    TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
 	    
-	    Result = 
+	    Spec = 
 		case Side of
-		    "lib"      -> build_app_docs(PackageName, TmpPackageDirPath, ErtsVsn, DocSpec);
-		    "releases" -> build_release_docs(PackageName, TmpPackageDirPath, ErtsVsn, DocSpec)
+		    "lib" ->
+			RawSpec = #app_spec{name          = PackageName,
+					    version       = PackageVsn,
+					    transition_id = DocSpec#doc_spec.transition_id,
+					    package_path  = FromPackagePath,
+					    erts_vsn      = ErtsVsn},
+			{ok, DocPath} = build_app_docs(TmpPackageDirPath, RawSpec, DocSpec),
+			RawSpec#app_spec{doc_path = DocPath};
+		    "releases" ->
+			RawSpec = #release_spec{name          = PackageName,
+						version       = PackageVsn,
+						transition_id = DocSpec#doc_spec.transition_id,
+						package_path  = FromPackagePath,
+						erts_vsn      = ErtsVsn},
+			{ok, DocPath} = build_release_docs(TmpPackageDirPath, RawSpec, DocSpec),
+			RawSpec#release_spec{doc_path = DocPath}
 		end,
-
+	    
 	    ewl_file:delete_dir(filename:dirname(TmpPackageDirPath)),
-	    Result
+	    {ok, Spec}
     end.
 
-build_app_docs(PackageName, TmpPackageDirPath, ErtsVsn, DocSpec) ->
+build_app_docs(TmpPackageDirPath, #app_spec{name = PackageName} = Spec, DocSpec) ->
     NoDocList = DocSpec#doc_spec.no_doc_list,
-    case catch lists:member({app, list_to_atom(PackageName)}, NoDocList) of
+    case lists:member({app, list_to_atom(PackageName)}, NoDocList) of
 	true  ->
 	    ?INFO_MSG("~p is in the no doc list; skipping~n", [PackageName]),
-	    ok;
+	    throw({in_no_doc_list, PackageName});
 	false ->
-	    (catch dd_doc_builder:build_app_docs(TmpPackageDirPath, ErtsVsn, DocSpec))
+	    build_app_docs2(TmpPackageDirPath, Spec, DocSpec)
     end.
 
-build_release_docs(PackageName, TmpPackageDirPath, ErtsVsn, DocSpec) ->
+build_app_docs2(PackageDirPath, _Spec, undefined) ->
+    ?INFO_MSG("Doc transition spec undefined for ~p. Skipping doc building.~n", [PackageDirPath]),
+    throw(skipped);
+build_app_docs2(PackageDirPath, #app_spec{erts_vsn = ErtsVsn}, #doc_spec{generated_docs_base_dir = DocDirPath}) ->
+    {ok, {AppName, AppVsn}} = epkg_installed_paths:package_dir_to_name_and_vsn(PackageDirPath),
+    case catch edoc:application(list_to_atom(AppName), PackageDirPath, []) of
+	ok -> 
+	    GeneratedDocDirPath = filename:join([PackageDirPath, "doc"]),
+	    LibDocDirPath       = filename:join([DocDirPath, "lib", ErtsVsn, AppName ++ "-" ++ AppVsn]),
+	    ewl_file:mkdir_p(LibDocDirPath),
+	    ?INFO_MSG("copy doc dir from ~s to ~s~n", [GeneratedDocDirPath, LibDocDirPath]),
+	    ewl_file:copy_dir(GeneratedDocDirPath, LibDocDirPath),
+	    {ok, LibDocDirPath};
+	Error -> 
+	    ?ERROR_MSG("doc failed for ~s-~s with ~p~n", [AppName, AppVsn, Error]),
+	    throw({doc_failed, AppName, AppVsn, Error})
+    end.
+
+build_release_docs(TmpPackageDirPath, #app_spec{name = PackageName} = Spec, DocSpec) ->
     NoDocList = DocSpec#doc_spec.no_doc_list,
     case catch lists:member({release, list_to_atom(PackageName)}, NoDocList) of
 	true  ->
 	    ?INFO_MSG("~p is in the no doc list; skipping~n", [PackageName]),
-	    ok;
+	    throw({in_no_doc_list, PackageName});
 	false ->
-	    (catch dd_doc_builder:build_release_docs(TmpPackageDirPath, ErtsVsn, DocSpec))
+	    build_release_docs2(TmpPackageDirPath, Spec, DocSpec)
     end.
 
-%create_tree(RepoDirPath) ->
-%    Fun = 
-%	fun(FromDirPath) ->
-%		try
-%		    case regexp:match(FromDirPath, "erts\..*") of
-%			{match, _, _} ->
-%			    {ok, {Prefix, Suffix}} = chop_to_erts_vsn(FromDirPath),
-%			    Elements = ewr_repo_paths:decompose_suffix(Suffix),
-%			    ErtsVsn  = fs_lists:get_val(erts_vsn, Elements),
-%			    Area     = fs_lists:get_val(area, Elements),
-%			    [_|CheckSumFileSuffix] = ewr_repo_paths:erts_checksum_file_suffix(ErtsVsn, Area),
-%			    CheckSumFilePath = filename:join(Prefix, CheckSumFileSuffix),
-%			    filelib:is_file(CheckSumFilePath);
-%			nomatch ->
-%			    {ok, {Prefix, Suffix}} = chop_to_erts_vsn(FromDirPath),
-%			    Elements           = ewr_repo_paths:decompose_suffix(Suffix),
-%			    ErtsVsn            = fs_lists:get_val(erts_vsn, Elements),
-%			    Side               = fs_lists:get_val(side, Elements),
-%			    PackageName        = fs_lists:get_val(package_name, Elements),
-%			    PackageVsn         = fs_lists:get_val(package_vsn, Elements),
-%			    [_|CheckSumFileSuffix] =
-%				ewr_repo_paths:checksum_file_suffix(ErtsVsn, Side, PackageName, PackageVsn),
-%			    CheckSumFilePath = filename:join(Prefix, CheckSumFileSuffix),
-%			    filelib:is_file(CheckSumFilePath)
-%		    end
-%		catch
-%		    _C:_E ->
-%			true
-%		end
-%	end,
-%    rd_file_tree:create_tree(RepoDirPath, Fun).
-%				      
-
-%chop_to_erts_vsn(RepoDirPath) ->
-%    Tokens = string:tokens(RepoDirPath, "/"),
-%    chop_to_erts_vsn2(Tokens, "").
-%
-%chop_to_erts_vsn2([ErtsVsn|T], Front) ->
-%    case regexp:match(ErtsVsn, "^[0-9]+\.[0-9]+\(\.[0-9]+\)?") of
-%	{match, _, _} ->
-%	    {ok, {Front, string:join([ErtsVsn|T], "/")}};
-%	nomatch ->
-%	    chop_to_erts_vsn2(T, Front ++ "/" ++ ErtsVsn)
-%    end;
-%chop_to_erts_vsn2([], _) ->
-%    {error, bad_suffix}.
-%
-%%%====================================================================
-%%% Test functions
-%%%====================================================================
-%chop_to_erts_vsn_test() ->
-%    {ok, {Prefix, Suffix}} =
-%	chop_to_erts_vsn("/Users/martinjlogan/repo/writable/5.6.3/Generic/lib/faxien/0.37.2.0/faxien.tar.gz"),
-%    ?assertMatch("/Users/martinjlogan/repo/writable", Prefix),
-%    ?assertMatch("5.6.3/Generic/lib/faxien/0.37.2.0/faxien.tar.gz", Suffix),
-%    Elements           = ewr_repo_paths:decompose_suffix(Suffix),
-%    ErtsVsn            = fs_lists:get_val(erts_vsn, Elements),
-%    ?assertMatch("5.6.3", ErtsVsn),
-%    Side               = fs_lists:get_val(side, Elements),
-%    ?assertMatch("lib", Side),
-%    PackageName        = fs_lists:get_val(package_name, Elements),
-%    ?assertMatch("faxien", PackageName),
-%    PackageVsn         = fs_lists:get_val(package_vsn, Elements),
-%    ?assertMatch("0.37.2.0", PackageVsn),
-%    [_|CheckSumFileSuffix] = ewr_repo_paths:checksum_file_suffix(ErtsVsn, Side, PackageName, PackageVsn),
-%    ?assertMatch("5.6.3/Meta/faxien/0.37.2.0/checksum", CheckSumFileSuffix),
-%    CheckSumFilePath   = filename:join([Prefix, CheckSumFileSuffix]),
-%    ?assertMatch("/Users/martinjlogan/repo/writable/5.6.3/Meta/faxien/0.37.2.0/checksum", CheckSumFilePath).
-%
+build_release_docs2(PackageDirPath, _Spec, undefined) ->
+    ?INFO_MSG("Doc transition spec undefined for ~p. Skipping doc building.~n", [PackageDirPath]),
+    throw(skipped);
+build_release_docs2(PackageDirPath, #app_spec{erts_vsn = ErtsVsn}, #doc_spec{generated_docs_base_dir = DocDirPath}) ->
+    {ok, {RelName, RelVsn}} = epkg_installed_paths:package_dir_to_name_and_vsn(PackageDirPath),
+    ControlFilePath = ewl_file:join_paths(PackageDirPath, "control"),
+    case filelib:is_file(ControlFilePath) of
+	true -> 
+	    RelDocBaseDirPath = ewl_file:join_paths(DocDirPath, "releases"),
+	    RelDocDirPath = ewl_file:join_paths(RelDocBaseDirPath, RelName ++ "-" ++ RelVsn),
+	    ewl_file:mkdir_p(RelDocDirPath),
+	    ?INFO_MSG("copy doc dir from ~s to ~s~n", [ControlFilePath, RelDocDirPath]),
+	    file:copy(ControlFilePath, ewl_file:join_paths(RelDocDirPath, "control")),
+	    ok = dd_release_template:generate_release_doc(RelDocBaseDirPath, RelDocDirPath, ErtsVsn),
+	    {ok, RelDocDirPath};
+	false  -> 
+	    ?ERROR_MSG("doc failed for ~s-~s because the release has no control file~n", [RelName, RelVsn]),
+	    throw({doc_failed, RelName, RelVsn})
+    end.

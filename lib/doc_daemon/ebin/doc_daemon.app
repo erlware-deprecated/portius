@@ -5,13 +5,14 @@
   {description, "Manage the creation of online docmentation for portius"},
 
   % The version of the applicaton
-  {vsn, "0.1.0.4"},
+  {vsn, "0.1.0.5"},
 
   % All modules used by the application.
   {modules,
    [
     dd_app,
     dd_sup,
+    dd_store,
     dd_doc_server,
     dd_doc_builder,
     dd_release_template,

@@ -34,6 +34,7 @@
 %% @end
 %%--------------------------------------------------------------------
 start(_StartType, _StartArgs) ->
+    rd_store:init(),
     case rd_sup:start_link() of
 	{ok, Pid} ->
 	    {ok, Pid};

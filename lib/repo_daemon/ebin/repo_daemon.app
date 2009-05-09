@@ -5,13 +5,14 @@
   {description, "Automate the movement of packages from writable to public repositories."},
 
   % The version of the applicaton
-  {vsn, "0.1.0.1"},
+  {vsn, "0.1.0.2"},
 
   % All modules used by the application.
   {modules,
    [
     rd_app,
     rd_sup,
+    rd_store,
     rd_file_tree,
     rd_trans_server
    ]},

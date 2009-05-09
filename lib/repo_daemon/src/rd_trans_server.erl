@@ -162,8 +162,8 @@ handle_transitions([], _TransitionSpec, _Email) ->
 handle_transitions(TreeDiff, TransitionSpec, Email) ->
     NewFiles = lists:foldl(fun(Path, Acc) -> 
 				   {ok, {_, FilePath}} = fs_lists:separate_by_token(Path, "/"),
-				   case regexp:match(FilePath, "(.*Meta.*|checksum|signature)") of
-				       {match, _, _} -> 
+				   case re:run(FilePath, "(.*Meta.*|checksum|signature)") of
+				       {match, _} -> 
 					   Acc;
 				       _ -> 
 					   [FilePath|Acc]
@@ -176,10 +176,10 @@ handle_transitions(TreeDiff, TransitionSpec, Email) ->
 
     lists:foreach(fun(FilePath) ->
 			  PackageName = filename:basename(FilePath),
-			  handle_results(handle_transition(FilePath, TransitionSpec), PackageName, Email)
+			  handle_results((catch handle_transition(FilePath, TransitionSpec)), PackageName, Email)
 		  end, NewFiles).
 
-handle_results(ok, PackageName, Email) ->
+handle_results(true, PackageName, Email) ->
     Subject = "Publish success for " ++ PackageName,
     send_email(Email, Subject, "Success");
 handle_results(Error, PackageName, Email) ->
@@ -195,8 +195,8 @@ send_email(To, Subject, Body) ->
     
  				  
 handle_transition(PackageFileSuffix, TransitionSpec) ->
-    case regexp:match(PackageFileSuffix, "/erts.") of
-	{match, _, _} ->
+    case re:run(PackageFileSuffix, "/erts.") of
+	{match, _} ->
 	    transition_erts(PackageFileSuffix, TransitionSpec);
 	_ ->
 	    ?INFO_MSG("transitioning ~p~n", [PackageFileSuffix]),
@@ -206,11 +206,22 @@ handle_transition(PackageFileSuffix, TransitionSpec) ->
 	    Area        = fs_lists:get_val(area, Elements),
 	    PackageName = fs_lists:get_val(package_name, Elements),
 	    PackageVsn  = fs_lists:get_val(package_vsn, Elements),
+
 	    case Side of
 		"lib" ->
-		    transition_app(ErtsVsn, Area, Side, PackageName, PackageVsn, TransitionSpec);
+		    ok = transition_app(ErtsVsn, Area, Side, PackageName, PackageVsn, TransitionSpec),
+		    AppSpec = #app_spec{name           = PackageName,
+					version        = PackageVsn,
+					transition_id  = TransitionSpec#transition_spec.transition_id,
+					package_suffix = PackageFileSuffix},
+		    rd_store:insert(AppSpec);
 		"releases" ->
-		    transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, TransitionSpec)
+		    ok = transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, TransitionSpec),
+		    RelSpec = #release_spec{name           = PackageName,
+					    version        = PackageVsn,
+					    transition_id  = TransitionSpec#transition_spec.transition_id,
+					    package_suffix = PackageFileSuffix},
+		    rd_store:insert(RelSpec)
 	    end
     end.
 
@@ -234,17 +245,16 @@ transition_erts(PackageFileSuffix, TransitionSpec) ->
     FromPackagePath   = ewl_file:join_paths(FromRepoDirPath, PackageFileSuffix),
     TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
 
-    Result = 
-	case epkg_validation:is_package_erts(TmpPackageDirPath) of
-	    true ->
-		copy_over_erts(ErtsVsn, Area, FromRepoDirPath, ToRepoDirPath);
-	    false ->
-		?ERROR_MSG("~s failed validation~n", [FromPackagePath]),
-		{error, {failed_transition, FromPackagePath}}
-	end,
-
-    ewl_file:delete_dir(filename:dirname(TmpPackageDirPath)),
-    Result.
+    try
+	true =  epkg_validation:is_package_erts(TmpPackageDirPath),
+	copy_over_erts(ErtsVsn, Area, FromRepoDirPath, ToRepoDirPath)
+    catch
+	_C:E ->
+	    ?ERROR_MSG("~s failed validation or copy with ~p~n", [FromPackagePath, E]),
+	    throw({failed_transition, FromPackagePath, E})
+    after
+	ewl_file:delete_dir(filename:dirname(TmpPackageDirPath))
+    end.
 
 copy_over_erts(ErtsVsn, Area, FromRepo, ToRepo) ->
     ErtsSuffix       = ewr_repo_paths:erts_package_suffix(ErtsVsn, Area),
@@ -269,17 +279,16 @@ transition_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, TransitionS
     FromPackagePath   = ewl_file:join_paths(FromRepo, PackageFileSuffix),
     TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
 
-    Result = 
-	case epkg_validation:is_package_an_app(TmpPackageDirPath) of
-	    true ->
-		copy_over_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
-	    false ->
-		?ERROR_MSG("~s failed validation~n", [FromPackagePath]),
-		{error, {failed_transition, FromPackagePath}}
-	end,
-
-    ewl_file:delete_dir(filename:dirname(TmpPackageDirPath)),
-    Result.
+    try
+	true =  epkg_validation:is_package_an_app(TmpPackageDirPath),
+	copy_over_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo)
+    catch
+	_C:E ->
+	    ?ERROR_MSG("~s failed validation or copy with ~p~n", [FromPackagePath, E]),
+	    throw({failed_transition, FromPackagePath, E})
+    after
+	ewl_file:delete_dir(filename:dirname(TmpPackageDirPath))
+    end.
 
 copy_over_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, ToRepo) ->
     PackageFileSuffix  = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
@@ -309,17 +318,17 @@ transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, TransitionSpec)
     FromPackagePath   = ewl_file:join_paths(FromRepo, PackageFileSuffix),
     TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
 
-    Result = 
-	case epkg_validation:is_package_a_release(TmpPackageDirPath) of
-	    true ->
-		copy_over_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo);
-	    false ->
-		?ERROR_MSG("~s failed validation~n", [FromPackagePath]),
-		{error, {failed_transition, FromPackagePath}}
-	end,
-
-    ewl_file:delete_dir(filename:dirname(TmpPackageDirPath)),
-    Result.
+    
+    try
+	true = epkg_validation:is_package_a_release(TmpPackageDirPath), 
+	copy_over_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo)
+    catch
+	_C:E ->
+	    ?ERROR_MSG("~s failed validation or copy with ~p~n", [FromPackagePath, E]),
+	    throw({failed_transition, FromPackagePath, E})
+    after
+	ewl_file:delete_dir(filename:dirname(TmpPackageDirPath))
+    end.
 
 copy_over_release(ErtsVsn, Area, "releases" = Side, PackageName, PackageVsn, FromRepo, ToRepo) ->
     PackageFileSuffix   = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
@@ -347,8 +356,8 @@ create_tree(FromRepoDirPath) ->
     Fun = 
 	fun(FromDirPath) ->
 		try
-		    case regexp:match(FromDirPath, "erts\..*") of
-			{match, _, _} ->
+		    case re:run(FromDirPath, "erts\..*") of
+			{match, _} ->
 			    {ok, {Prefix, Suffix}} = chop_to_erts_vsn(FromDirPath),
 			    Elements = ewr_repo_paths:decompose_suffix(Suffix),
 			    ErtsVsn  = fs_lists:get_val(erts_vsn, Elements),
@@ -356,7 +365,7 @@ create_tree(FromRepoDirPath) ->
 			    [_|CheckSumFileSuffix] = ewr_repo_paths:erts_checksum_file_suffix(ErtsVsn, Area),
 			    CheckSumFilePath = filename:join(Prefix, CheckSumFileSuffix),
 			    filelib:is_file(CheckSumFilePath);
-			nomatch ->
+			_NoMatch ->
 			    {ok, {Prefix, Suffix}} = chop_to_erts_vsn(FromDirPath),
 			    Elements           = ewr_repo_paths:decompose_suffix(Suffix),
 			    ErtsVsn            = fs_lists:get_val(erts_vsn, Elements),
@@ -381,10 +390,10 @@ chop_to_erts_vsn(FromRepoDirPath) ->
     chop_to_erts_vsn2(Tokens, "").
 
 chop_to_erts_vsn2([ErtsVsn|T], Front) ->
-    case regexp:match(ErtsVsn, "^[0-9]+\.[0-9]+\(\.[0-9]+\)?") of
-	{match, _, _} ->
+    case re:run(ErtsVsn, "^[0-9]+\.[0-9]+\(\.[0-9]+\)?") of
+	{match, _} ->
 	    {ok, {Front, string:join([ErtsVsn|T], "/")}};
-	nomatch ->
+	_NoMatch ->
 	    chop_to_erts_vsn2(T, Front ++ "/" ++ ErtsVsn)
     end;
 chop_to_erts_vsn2([], _) ->
