@@ -241,7 +241,6 @@ gather_release_specs(RelDocRootDirPath) ->
     RelPaths = filelib:wildcard(ewl_file:join_paths(RelDocRootDirPath, "*")),
     dict:to_list(populate_dict(RelPaths, dict:new())).
 			    
-
 populate_dict([RelPath|T], Dict) ->    
     case filelib:is_dir(RelPath) of
 	true -> 

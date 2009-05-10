@@ -129,7 +129,8 @@ get_part_template(ErlAppDocRootDirPath) ->
 %%--------------------------------------------------------------------
 render_page(IndexTemplate, PartTemplate, AppSpecs, DocRoot) ->
     {ok, Map} = sgte:compile("$map li apps$"),
-    Str = sgte:render_str(Map, [{li, PartTemplate}, {apps, create_renderable_specs(AppSpecs, DocRoot)}]),
+    RenderableSpecs = create_renderable_specs(AppSpecs, DocRoot),
+    Str = sgte:render_str(Map, [{li, PartTemplate}, {apps, RenderableSpecs}]),
     sgte:render_str(IndexTemplate, [{app_list, Str}]).
     
 create_renderable_specs(Specs, DocRoot) ->
@@ -137,13 +138,13 @@ create_renderable_specs(Specs, DocRoot) ->
 	       end, lists:flatten(massage_app_specs(Specs, DocRoot))).
 
 massage_app_specs([{AppName, Attributes}|T], DocRoot) ->
-    [{HighAppVsn, HighErtsVsn, HighAppPath}|AggregatedAttributes] = group_erts_vsns(sort_by_version(Attributes)),
+    [{HighAppVsn, HighErtsVsn, HighAppPath}|AggregatedAttributes] = Attrs = sort_by_version(Attributes),
 
     ErlangVsn = string:join(
-		lists:map(
-		  fun(ErtsVsn_) -> {ok, ErlangVsn_} = faxien:translate_version(erts, erlang, ErtsVsn_), ErlangVsn_ end,
-		  string:tokens(HighErtsVsn, " ,")),
-		","),
+		  lists:map(
+		    fun(ErtsVsn_) -> {ok, ErlangVsn_} = faxien:translate_version(erts, erlang, ErtsVsn_), ErlangVsn_ end,
+		    lists:reverse(ordsets:to_list(ordsets:from_list([EV || {_, EV, _} <- Attrs])))),
+		", "),
 
     SpecList = [
 		{name, AppName}, 
@@ -170,17 +171,6 @@ massage_app_specs([{AppName, Attributes}|T], DocRoot) ->
 massage_app_specs([], _DocRoot) ->
     [].
 
-group_erts_vsns(Attributes) ->
-    lists:reverse(group_erts_vsns(Attributes, [])).
-
-group_erts_vsns([{AppVsn, ErtsVsn, _}|T], [{AppVsn, ErtsVsns, AppPath}|AccT]) ->
-    group_erts_vsns(T, [{AppVsn, lists:flatten([ErtsVsns, ", ", ErtsVsn]), AppPath}|AccT]);
-group_erts_vsns([H|T], Acc) ->
-    group_erts_vsns(T, [H|Acc]);
-group_erts_vsns([], Acc) ->
-    Acc.
-    
-    
 sort_by_version(Attributes) ->
     lists:sort(fun(A1, A2) -> ewr_util:is_version_greater(element(1, A1), element(1, A2)) end, Attributes).
     

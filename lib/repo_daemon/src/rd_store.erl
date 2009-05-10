@@ -13,14 +13,17 @@
 	 init/0,
 	 insert/1,
 	 delete/1,
-	 lookup_app/2,
-	 lookup_release/2,
+	 lookup_app/3,
+	 lookup_apps/2,
 	 lookup_apps/1,
+	 lookup_release/3,
+	 lookup_releases/2,
 	 lookup_releases/1
 	]).
 
 -define(TABLE_ID, ?MODULE).
 -include("repo_daemon.hrl").
+-include_lib("stdlib/include/ms_transform.hrl").
 
 %%%===================================================================
 %%% API
@@ -38,65 +41,104 @@ init() ->
     
 %%--------------------------------------------------------------------
 %% @doc Find a an application given it's name and version.
-%% @spec lookup_app(Name) -> {ok, Record} | {error, not_found}
+%% @spec lookup_app(Name, Version, TransitionId) -> {ok, Record} | {error, not_found}
 %% @end
 %%--------------------------------------------------------------------
-lookup_app(Name, Version) ->
-    case lookup_apps(Name) of
-	[]      -> {error, not_found};
-	Records ->
-	    case [Record || Record <- Records, Record#app_spec.version == Version] of
-		[]       -> {error, not_found};
-		[Record] -> {ok, Record}
-	    end
+lookup_app(Name, Version, TransitionId) ->
+    Name2 = epkg_util:if_atom_or_integer_to_string(Name),
+    Records = select_apps(ets:fun2ms(fun(Record) when Record#app_spec.name == Name2,
+			     Record#app_spec.version == Version,
+			     Record#app_spec.transition_id == TransitionId -> Record end)),
+    case Records of
+	[Record] -> {ok, Record};
+	[]       -> {error, not_found}
     end.
+	    
 
+%%--------------------------------------------------------------------
+%% @doc Find all applications of a particular name and transition id.
+%% @spec lookup_apps(Name, TransitionId) -> {ok, Record} | {error, not_found}
+%% @end
+%%--------------------------------------------------------------------
+lookup_apps(Name, TransitionId) ->
+    Name2 = epkg_util:if_atom_or_integer_to_string(Name),
+    select_releases(ets:fun2ms(fun(Record) when Record#app_spec.name == Name2,
+		       Record#app_spec.transition_id == TransitionId -> Record end)).
 %%--------------------------------------------------------------------
 %% @doc Find all applications of a particular name.
 %% @spec lookup_apps(Name) -> {ok, Record} | {error, not_found}
 %% @end
 %%--------------------------------------------------------------------
 lookup_apps(Name) ->
-    ets:lookup(rd_app_spec, Name).   
+    Name2 = epkg_util:if_atom_or_integer_to_string(Name),
+    ets:lookup(rd_app_spec, Name2).   
 
 %%--------------------------------------------------------------------
-%% @doc Find a release given it's name.
-%% @spec lookup_release(Name) -> {ok, Record} | {error, not_found}
+%% @doc Select from the apps table using a match spec. 
+%% @spec select_apps(Fun) -> {ok, Record} | {error, not_found}
 %% @end
 %%--------------------------------------------------------------------
-lookup_release(Name, Version) ->
-    case lookup_releases(Name) of
-	[] ->
-	    {error, not_found};
-	Records -> 
-	    case [Record || Record <- Records, Record#release_spec.version == Version] of
-		[]       -> {error, not_found};
-		[Record] -> {ok, Record}
-	    end
+select_apps(MatchSpec) ->
+    ets:select(rd_app_spec, MatchSpec).
+
+%%--------------------------------------------------------------------
+%% @doc Find a specific release
+%% @spec lookup_release(Name, Version, TransitionId) -> {ok, Record} | {error, not_found}
+%% @end
+%%--------------------------------------------------------------------
+lookup_release(Name, Version, TransitionId) ->
+    Name2 = epkg_util:if_atom_or_integer_to_string(Name),
+    Records = select_releases(ets:fun2ms(fun(Record) when Record#release_spec.name == Name2,
+				 Record#release_spec.version == Version,
+				 Record#release_spec.transition_id == TransitionId -> Record end)),
+    case Records of
+	[Record] -> {ok, Record};
+	[]       -> {error, not_found}
     end.
 
 %%--------------------------------------------------------------------
+%% @doc Find all releases of a particular name and transition id.
+%% @spec lookup_releases(Name, TransitionId) -> {ok, Record} | {error, not_found}
+%% @end
+%%--------------------------------------------------------------------
+lookup_releases(Name, TransitionId) ->
+    Name2 = epkg_util:if_atom_or_integer_to_string(Name),
+    select_releases(ets:fun2ms(fun(Record) when Record#release_spec.name == Name2,
+		       Record#release_spec.transition_id == TransitionId -> Record end)).
+    
+%%--------------------------------------------------------------------
 %% @doc Find all releases of a particular name.
-%% @spec lookup_app(Name) -> {ok, Record} | {error, not_found}
+%% @spec lookup_releases(Name) -> {ok, Record} | {error, not_found}
 %% @end
 %%--------------------------------------------------------------------
 lookup_releases(Name) ->
-    ets:lookup(rd_release_spec, Name).
+    Name2 = epkg_util:if_atom_or_integer_to_string(Name),
+    ets:lookup(rd_release_spec, Name2).
 
 %%--------------------------------------------------------------------
-%% @doc Insert a key and pid.
+%% @doc Select from the releases table using a match spec. 
+%% @spec select_releases(MatchSpec) -> {ok, Record} | {error, not_found}
+%% @end
+%%--------------------------------------------------------------------
+select_releases(MatchSpec) ->
+    ets:select(rd_release_spec, MatchSpec).
+
+%%--------------------------------------------------------------------
+%% @doc Insert a package spec
 %% @spec insert(Key, Pid) -> void()
 %% @end
 %%--------------------------------------------------------------------
-insert(#app_spec{name = Name, version = Version} = Record) ->
-    case lookup_app(Name, Version) of
+insert(#app_spec{name = Name, version = Version, transition_id = TransitionId} = Record) ->
+    Name2 = epkg_util:if_atom_or_integer_to_string(Name),
+    case lookup_app(Name2, Version, TransitionId) of
 	{error, not_found} ->
 	    ets:insert(rd_app_spec, Record);
 	_ ->
 	    throw({duplicate_app_not_inserting, Record})
     end;
-insert(#release_spec{name = Name, version = Version} = Record) ->
-    case lookup_release(Name, Version) of
+insert(#release_spec{name = Name, version = Version, transition_id = TransitionId} = Record) ->
+    Name2 = epkg_util:if_atom_or_integer_to_string(Name),
+    case lookup_release(Name2, Version, TransitionId) of
 	{error, not_found} ->
 	    ets:insert(rd_release_spec, Record);
 	_ ->

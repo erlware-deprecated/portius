@@ -11,7 +11,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/1]).
+-export([start_link/1, subscribe/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
@@ -20,9 +20,10 @@
 -include("repo_daemon.hrl").
 -include("eunit.hrl").
 
+
 -define(SERVER, ?MODULE). 
 
--record(state, {transition_spec, inspection_frequency, last_tree, email}).
+-record(state, {transition_spec, inspection_frequency, last_tree, email, subscription_funs = []}).
 
 %%====================================================================
 %% API
@@ -36,7 +37,19 @@
 %% @end
 %%--------------------------------------------------------------------
 start_link(TransitionSpec) ->
-    gen_server:start_link(?MODULE, [TransitionSpec], []).
+    gen_server:start_link({local, TransitionSpec#transition_spec.transition_id}, ?MODULE, [TransitionSpec], []).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Subscribe to changes. When new files are moved over the subscription fun
+%% will be called. The subscription fun takes a single argument which is
+%% a list of the files that have been added.
+%%
+%% @spec subscribe(TransitionId, SubscriptionFun) -> void()
+%% @end
+%%--------------------------------------------------------------------
+subscribe(TransitionId, SubscriptionFun) ->
+    gen_server:cast(TransitionId, {subscribe, SubscriptionFun}).
 
 %%====================================================================
 %% gen_server callbacks
@@ -59,15 +72,15 @@ init([TransitionSpec]) ->
 
     ToRepoDirPath = TransitionSpec#transition_spec.to_repo,
     ok = ewl_file:mkdir_p(ToRepoDirPath),
-    ToTree = rd_file_tree:create_tree(ToRepoDirPath),
-    ?INFO_MSG("created initial tree from ~s~n", [ToRepoDirPath]),
+    ToTree = rd_file_tree:create_empty_tree(ToRepoDirPath),
+    ?INFO_MSG("initialized to move packages to ~p~n", [ToRepoDirPath]),
 
     State = #state{transition_spec      = TransitionSpec, 
 		   inspection_frequency = Timeout, 
 		   last_tree            = ToTree,
 		   email                = Email},
 
-    {ok, State, 0}.
+    {ok, State, 1000}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -97,8 +110,10 @@ handle_call(_Request, _From, State) ->
 %%                                  {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_cast(_Msg, State) ->
-    {noreply, State}.
+handle_cast({subscribe, SubscriptionFun}, State) ->
+    ?INFO_MSG("adding the subscription ~p~n", [SubscriptionFun]),
+    NewFuns = [SubscriptionFun|State#state.subscription_funs],
+    {noreply, State#state{subscription_funs = NewFuns}, State#state.inspection_frequency}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -114,11 +129,12 @@ handle_info(_Info, State) ->
     #state{transition_spec      = TransitionSpec, 
 	   inspection_frequency = Timeout, 
 	   last_tree            = LastTree,
-	   email                = Email} = State,
+	   email                = Email,
+	   subscription_funs    = SubscriptionFuns} = State,
 
     Tree     = create_tree(TransitionSpec#transition_spec.from_repo),
     TreeDiff = rd_file_tree:find_additions(LastTree, Tree),
-    handle_transitions(TreeDiff, TransitionSpec, Email),
+    handle_transitions(TreeDiff, TransitionSpec, Email, SubscriptionFuns),
 
     {noreply, State#state{last_tree = Tree}, Timeout}.
 
@@ -157,9 +173,9 @@ code_change(_OldVsn, State, _Extra) ->
 %% @doc handle the transitions of all packages from one repo to another
 %% @end
 %%--------------------------------------------------------------------
-handle_transitions([], _TransitionSpec, _Email) ->
+handle_transitions([], _TransitionSpec, _Email, _SubscriptionFuns) ->
     ok;
-handle_transitions(TreeDiff, TransitionSpec, Email) ->
+handle_transitions(TreeDiff, TransitionSpec, Email, SubscriptionFuns) ->
     NewFiles = lists:foldl(fun(Path, Acc) -> 
 				   {ok, {_, FilePath}} = fs_lists:separate_by_token(Path, "/"),
 				   case re:run(FilePath, "(.*Meta.*|checksum|signature)") of
@@ -177,7 +193,10 @@ handle_transitions(TreeDiff, TransitionSpec, Email) ->
     lists:foreach(fun(FilePath) ->
 			  PackageName = filename:basename(FilePath),
 			  handle_results((catch handle_transition(FilePath, TransitionSpec)), PackageName, Email)
-		  end, NewFiles).
+		  end, NewFiles),
+
+    lists:foreach(fun(SubscriptionFun) -> SubscriptionFun(NewFiles) end, SubscriptionFuns).
+			  
 
 handle_results(true, PackageName, Email) ->
     Subject = "Publish success for " ++ PackageName,
@@ -277,17 +296,23 @@ transition_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, TransitionS
     ToRepo   = TransitionSpec#transition_spec.to_repo,
     PackageFileSuffix = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
     FromPackagePath   = ewl_file:join_paths(FromRepo, PackageFileSuffix),
-    TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
-
-    try
-	true =  epkg_validation:is_package_an_app(TmpPackageDirPath),
-	copy_over_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo)
-    catch
-	_C:E ->
-	    ?ERROR_MSG("~s failed validation or copy with ~p~n", [FromPackagePath, E]),
-	    throw({failed_transition, FromPackagePath, E})
-    after
-	ewl_file:delete_dir(filename:dirname(TmpPackageDirPath))
+    ToPackagePath = ewl_file:join_paths(ToRepo, PackageFileSuffix),
+    case filelib:is_file(ToPackagePath) of
+	true ->
+	    ?INFO_MSG("app already in place ~p~n", [ToPackagePath]);
+	false ->
+	    TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
+	    
+	    try
+		true =  epkg_validation:is_package_an_app(TmpPackageDirPath),
+		copy_over_app(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo)
+	    catch
+		_C:E ->
+		    ?ERROR_MSG("~s failed validation or copy with ~p~n", [FromPackagePath, E]),
+		    throw({failed_transition, FromPackagePath, E})
+	    after
+		ewl_file:delete_dir(filename:dirname(TmpPackageDirPath))
+	    end
     end.
 
 copy_over_app(ErtsVsn, Area, "lib" = Side, PackageName, PackageVsn, FromRepo, ToRepo) ->
@@ -316,18 +341,23 @@ transition_release(ErtsVsn, Area, Side, PackageName, PackageVsn, TransitionSpec)
     ToRepo   = TransitionSpec#transition_spec.to_repo,
     PackageFileSuffix = ewr_repo_paths:package_suffix(ErtsVsn, Area, Side, PackageName, PackageVsn),
     FromPackagePath   = ewl_file:join_paths(FromRepo, PackageFileSuffix),
-    TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
-
-    
-    try
-	true = epkg_validation:is_package_a_release(TmpPackageDirPath), 
-	copy_over_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo)
-    catch
-	_C:E ->
-	    ?ERROR_MSG("~s failed validation or copy with ~p~n", [FromPackagePath, E]),
-	    throw({failed_transition, FromPackagePath, E})
-    after
-	ewl_file:delete_dir(filename:dirname(TmpPackageDirPath))
+    ToPackagePath = ewl_file:join_paths(ToRepo, PackageFileSuffix),
+    case filelib:is_file(ToPackagePath) of
+	true ->
+	    ?INFO_MSG("release already in place ~p~n", [ToPackagePath]);
+	false ->
+	    TmpPackageDirPath = epkg_util:unpack_to_tmp(FromPackagePath),
+	    
+	    try
+		true = epkg_validation:is_package_a_release(TmpPackageDirPath), 
+		copy_over_release(ErtsVsn, Area, Side, PackageName, PackageVsn, FromRepo, ToRepo)
+	    catch
+		_C:E ->
+		    ?ERROR_MSG("~s failed validation or copy with ~p~n", [FromPackagePath, E]),
+		    throw({failed_transition, FromPackagePath, E})
+	    after
+		ewl_file:delete_dir(filename:dirname(TmpPackageDirPath))
+	    end
     end.
 
 copy_over_release(ErtsVsn, Area, "releases" = Side, PackageName, PackageVsn, FromRepo, ToRepo) ->

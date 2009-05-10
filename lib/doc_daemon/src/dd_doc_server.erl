@@ -11,7 +11,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/1]).
+-export([start_link/1, notify/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -19,7 +19,7 @@
 
 -define(SERVER, ?MODULE). 
 
--record(state, {doc_spec, inspection_frequency, last_tree}).
+-record(state, {doc_spec}).
 -include("doc_daemon.hrl").
 -include("macros.hrl").
 
@@ -37,6 +37,15 @@
 start_link(DocSpec) ->
     gen_server:start_link(?MODULE, DocSpec, []).
 
+%%--------------------------------------------------------------------
+%% @doc callback for the rd_trans_server to notify this process when there
+%%      have been files added to the repo.
+%% @spec (Pid, ChangedFiles) -> void()
+%% @end
+%%--------------------------------------------------------------------
+notify(Pid, ChangedFiles) ->
+    gen_server:cast(Pid, {notify, ChangedFiles}).
+   
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
@@ -53,16 +62,14 @@ start_link(DocSpec) ->
 %% @end
 %%--------------------------------------------------------------------
 init(DocSpec) ->
-    {ok, Timeout} = gas:get_env(doc_daemon, inspection_frequency),
+    Self = self(),
+    rd_trans_server:subscribe(DocSpec#doc_spec.transition_id, fun(Files) -> notify(Self, Files) end),
 
-    RepoDirPath = DocSpec#doc_spec.repo_dir_path,
-    ok   = ewl_file:mkdir_p(RepoDirPath),
-    Tree = rd_file_tree:create_empty_tree(filename:basename(RepoDirPath)),
-    ?INFO_MSG("created initial tree from ~s~n", [RepoDirPath]),
+    ok   = ewl_file:mkdir_p(DocSpec#doc_spec.repo_dir_path),
 
     dd_doc_builder:build_index_docs(DocSpec),
 
-    {ok, #state{doc_spec = DocSpec, inspection_frequency = Timeout, last_tree = Tree}, Timeout}.
+    {ok, #state{doc_spec = DocSpec}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -92,7 +99,9 @@ handle_call(_Request, _From, State) ->
 %%                                  {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_cast(_Msg, State) ->
+handle_cast({notify, ChangedFiles}, #state{doc_spec = DocSpec} = State) ->
+    handle_generations(ChangedFiles, DocSpec),
+    dd_doc_builder:build_index_docs(DocSpec),
     {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -105,22 +114,8 @@ handle_cast(_Msg, State) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_info(timeout, State) ->
-    #state{doc_spec             = DocSpec, 
-	   inspection_frequency = Timeout, 
-	   last_tree            = LastTree} = State,
-
-    Tree     = rd_file_tree:create_tree(DocSpec#doc_spec.repo_dir_path),
-    TreeDiff = rd_file_tree:find_additions(LastTree, Tree),
-    handle_generations(TreeDiff, DocSpec),
-
-    % If there were docs to create then regenerate the index docs
-    case TreeDiff of
-	[] -> ok;
-	_  -> dd_doc_builder:build_index_docs(DocSpec)
-    end,
-
-    {noreply, State#state{last_tree = Tree}, Timeout}.
+handle_info(_Msg, State) ->
+    {noreply, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -157,19 +152,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 handle_generations([], _DocSpec) ->
     ok;
-handle_generations(TreeDiff, DocSpec) ->
-    NewFiles = lists:foldl(fun(Path, Acc) -> 
-				   {ok, {_, FilePath}} = fs_lists:separate_by_token(Path, "/"),
-				   case re:run(FilePath, "(.*Meta.*|checksum|signature)") of
-				       {match, _} -> 
-					   Acc;
-				       _ -> 
-					   [FilePath|Acc]
-				   end
-			   end,
-			   [],
-			   rd_file_tree:file_paths(TreeDiff)),
-
+handle_generations(NewFiles, DocSpec) ->
     ?INFO_MSG("Packages to generate docs for ~p~n",[NewFiles]),
 
     lists:foreach(fun(FilePath) ->
@@ -251,7 +234,7 @@ build_app_docs2(PackageDirPath, #app_spec{erts_vsn = ErtsVsn}, #doc_spec{generat
 	    throw({doc_failed, AppName, AppVsn, Error})
     end.
 
-build_release_docs(TmpPackageDirPath, #app_spec{name = PackageName} = Spec, DocSpec) ->
+build_release_docs(TmpPackageDirPath, #release_spec{name = PackageName} = Spec, DocSpec) ->
     NoDocList = DocSpec#doc_spec.no_doc_list,
     case catch lists:member({release, list_to_atom(PackageName)}, NoDocList) of
 	true  ->
@@ -264,7 +247,7 @@ build_release_docs(TmpPackageDirPath, #app_spec{name = PackageName} = Spec, DocS
 build_release_docs2(PackageDirPath, _Spec, undefined) ->
     ?INFO_MSG("Doc transition spec undefined for ~p. Skipping doc building.~n", [PackageDirPath]),
     throw(skipped);
-build_release_docs2(PackageDirPath, #app_spec{erts_vsn = ErtsVsn}, #doc_spec{generated_docs_base_dir = DocDirPath}) ->
+build_release_docs2(PackageDirPath, #release_spec{erts_vsn = ErtsVsn}, #doc_spec{generated_docs_base_dir = DocDirPath}) ->
     {ok, {RelName, RelVsn}} = epkg_installed_paths:package_dir_to_name_and_vsn(PackageDirPath),
     ControlFilePath = ewl_file:join_paths(PackageDirPath, "control"),
     case filelib:is_file(ControlFilePath) of

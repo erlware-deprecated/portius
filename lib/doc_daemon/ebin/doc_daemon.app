@@ -5,7 +5,7 @@
   {description, "Manage the creation of online docmentation for portius"},
 
   % The version of the applicaton
-  {vsn, "0.1.0.5"},
+  {vsn, "0.1.1.0"},
 
   % All modules used by the application.
   {modules,
@@ -23,8 +23,8 @@
   {registered, []},
 
   % Applications that are to be started prior to this one.
-  {applications, [eunit, kernel, stdlib, sasl, gas, fslib, epkg, ewrepo, ewlib,
-		  sgte, edoc, cryptographic, faxien, repo_daemon]},
+  {applications, [eunit, kernel, stdlib, repo_daemon, sasl, gas, fslib, epkg, ewrepo, ewlib,
+		  sgte, edoc, cryptographic, faxien]},
 
   % OTP application loader will load, but not start, included apps
   {included_applications, []},
