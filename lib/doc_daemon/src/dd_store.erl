@@ -36,7 +36,7 @@ init() ->
     
 %%--------------------------------------------------------------------
 %% @doc Find a an application given it's name.
-%% @spec lookup_app(Key) -> {ok, Record} | {error, not_found}
+%% @spec lookup_app(Name, Version) -> {ok, Record} | {error, not_found}
 %% @end
 %%--------------------------------------------------------------------
 lookup_app(Name, Version) ->
@@ -47,7 +47,7 @@ lookup_app(Name, Version) ->
 
 %%--------------------------------------------------------------------
 %% @doc Find a release given it's name.
-%% @spec lookup_release(Key) -> {ok, Record} | {error, not_found}
+%% @spec lookup_release(Name, Version) -> {ok, Record} | {error, not_found}
 %% @end
 %%--------------------------------------------------------------------
 lookup_release(Name, Version) ->
@@ -57,8 +57,8 @@ lookup_release(Name, Version) ->
     end.
 
 %%--------------------------------------------------------------------
-%% @doc Insert a key and pid.
-%% @spec insert(Key, Pid) -> void()
+%% @doc Insert an app spec or a release spec record. 
+%% @spec insert(Record) -> void()
 %% @end
 %%--------------------------------------------------------------------
 insert(#app_spec{} = Record) ->
