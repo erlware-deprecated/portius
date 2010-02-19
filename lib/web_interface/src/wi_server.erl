@@ -6,7 +6,7 @@
 %%% @end
 %%% Created : 11 Feb 2010 by Martin Logan <martinjlogan@Macintosh.local>
 %%%-------------------------------------------------------------------
--module(wi_webdav_server).
+-module(wi_server).
 
 -behaviour(gen_web_server).
 
@@ -40,7 +40,7 @@
 %%--------------------------------------------------------------------
 start_link() ->
     {ok, Port} = gas:get_env(web_interface, port, 8080),
-    {ok, DocumentRoot} = gas:get_env(web_interface, port, "/tmp/repo"),
+    {ok, DocumentRoot} = gas:get_env(web_interface, document_root, "/tmp/repo"),
     gen_web_server:start_link(?MODULE, Port, DocumentRoot).
 
 %%%===================================================================
@@ -64,7 +64,7 @@ get({http_request, _, {abs_path, AbsPath}, _}, Headers, State) ->
     FilePath = filename:join(State#state.document_root, string:strip(AbsPath, left, $\/)),
     case catch file:read_file(FilePath) of
 	{ok, TarFile} ->
-	    error_logger:info_msg("request is ~p~n", [FilePath]),
+	    error_logger:info_msg("request is ~p headers ~p~n", [FilePath, Headers]),
 	    gen_web_server:http_reply(200, Headers, TarFile);
 	_Error ->
 	    gen_web_server:http_reply(404)

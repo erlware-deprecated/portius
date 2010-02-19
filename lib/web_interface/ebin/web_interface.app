@@ -5,7 +5,7 @@
    {vsn, "0.1.0"},
    {modules, [wi_app,
               wi_sup,
-              wi_webdav_server]},
+              wi_server]},
    {registered,[]},
    {applications, [kernel, stdlib, gen_web_server]},
    {mod, {wi_app, []}},

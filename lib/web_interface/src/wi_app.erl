@@ -6,7 +6,7 @@
 %%% @end
 %%% Created : 11 Feb 2010 by Martin Logan <martinjlogan@Macintosh.local>
 %%%-------------------------------------------------------------------
--module(gwsu_app).
+-module(wi_app).
 
 -behaviour(application).
 
@@ -34,7 +34,7 @@
 %% @end
 %%--------------------------------------------------------------------
 start(_StartType, _StartArgs) ->
-    case gwsu_sup:start_link() of
+    case wi_sup:start_link() of
 	{ok, Pid} ->
 	    {ok, Pid};
 	Error ->

@@ -60,8 +60,8 @@ init([]) ->
     Shutdown = 2000,
     Type = worker,
 
-    Children = [{wi_webdav_server, {wi_webdav_server, start_link, []},
-		 Restart, Shutdown, Type, [wi_webdav_server]}],
+    Children = [{wi_server, {wi_server, start_link, []},
+		 Restart, Shutdown, Type, [wi_server]}],
 
     {ok, {SupFlags, Children}}.
 
