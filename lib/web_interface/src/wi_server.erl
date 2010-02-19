@@ -103,9 +103,7 @@ other_methods({http_request, "PROPFIND", {abs_path, AbsPath}, _}, Headers, _Body
 	    gen_web_server:http_reply(404);
 	Resp -> 
 	    error_logger:info_msg("request is ~p ~p~n", [AbsPath, Headers]),
-	    WebResp = gen_web_server:http_reply(207, Headers, Resp),
-	    error_logger:info_msg("response to propfind ~p~n", [WebResp]),
-	    WebResp
+	    gen_web_server:http_reply(207, Headers, Resp)
     end;
 other_methods({http_request, "MKCOL", {abs_path, AbsPath}, _}, _Headers, _Body, State) ->
     gws_web_dav_util:mkcol(State#state.document_root, AbsPath),

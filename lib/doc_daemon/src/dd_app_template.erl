@@ -151,7 +151,7 @@ massage_app_specs([{AppName, Attributes}|T], DocRoot) ->
 		{vsn, HighAppVsn}, 
 		{erlang_vsn, ErlangVsn}, 
 		{erts_vsn, HighErtsVsn}, 
-		{path, www_renderable_path(HighAppPath, DocRoot)}
+		{path, lists:concat([www_renderable_path(HighAppPath, DocRoot), "/index.html"])}
 	       ],
 
     Links = 

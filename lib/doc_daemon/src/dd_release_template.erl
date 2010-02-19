@@ -206,14 +206,14 @@ massage_release_specs([{RelName, Attributes}|T], DocRoot) ->
     SpecList = [
 		{name, RelName}, 
 		{vsn, HighRelVsn}, 
-		{path, www_renderable_path(HighRelPath, DocRoot)}
+		{path, lists:concat([www_renderable_path(HighRelPath, DocRoot), "/control"])}
 	       ],
 
     Links = 
 	lists:flatten(
 	  lists:sublist(
 	    lists:map(fun({RelVsn, RelPath}) -> 
-			      lists:flatten([" <a href=\"", www_renderable_path(RelPath, DocRoot),"\">", RelVsn, "</a> |"]) 
+			      lists:flatten([" <a href=\"", www_renderable_path(RelPath, DocRoot),"/index.html\">", RelVsn, "</a> |"]) 
 		      end, 
 		      AggregatedAttributes), ?VERSION_HISTORY_DEPTH)),
 
