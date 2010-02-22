@@ -67,7 +67,7 @@ subscribe(TransitionId, SubscriptionFun) ->
 %% @end
 %%--------------------------------------------------------------------
 init([TransitionSpec]) ->
-    {ok, Timeout} = gas:get_env(repo_daemon, inspection_frequency),
+    {ok, Timeout} = gas:get_env(repo_daemon, inspection_frequency, 30000),
     {ok, Email}   = gas:get_env(repo_daemon, email, undefined),
 
     ToRepoDirPath = TransitionSpec#transition_spec.to_repo,

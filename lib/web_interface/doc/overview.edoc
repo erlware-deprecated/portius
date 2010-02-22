@@ -1,4 +1,7 @@
 @author Martin Logan <martinjlogan@erlware.org>
 @copyright 2010 Martin Logan
-@version {@vsn}
+@version 
+@doc <h1>web_interface</h1>
+
+The web and webdav interface for portius.
 

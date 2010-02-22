@@ -124,8 +124,8 @@ select_releases(MatchSpec) ->
     ets:select(rd_release_spec, MatchSpec).
 
 %%--------------------------------------------------------------------
-%% @doc Insert a package spec
-%% @spec insert(Key, Pid) -> void()
+%% @doc Insert a package spec.
+%% @spec (AppSpecRecord) -> void()
 %% @end
 %%--------------------------------------------------------------------
 insert(#app_spec{name = Name, version = Version, transition_id = TransitionId} = Record) ->

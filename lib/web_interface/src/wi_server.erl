@@ -34,14 +34,20 @@
 %%%===================================================================
 
 %%--------------------------------------------------------------------
-%% @doc
-%% @spec
+%% @doc starts the server
+%% @spec () -> {ok, pid()}
 %% @end
 %%--------------------------------------------------------------------
 start_link() ->
     {ok, Port} = gas:get_env(web_interface, port, 8080),
     {ok, DocumentRoot} = gas:get_env(web_interface, document_root, "/tmp/repo"),
-    gen_web_server:start_link(?MODULE, Port, DocumentRoot).
+    case Port of
+	Port when is_list(Port) ->
+	    gen_web_server:start_link(?MODULE, list_to_integer(Port), DocumentRoot);
+	Port ->
+	    gen_web_server:start_link(?MODULE, Port, DocumentRoot)
+    end.
+	    
 
 %%%===================================================================
 %%% gen_web_server callbacks
@@ -93,7 +99,7 @@ connect(_RequestLine, _Headers, _Body, _State) -> gen_web_server:http_reply(200)
 
 %%--------------------------------------------------------------------
 %% @doc
-%% @spec (RequestLine, Headers, Body) -> Response
+%% @spec (RequestLine, Headers, Body, State) -> Response
 %% @end
 %%--------------------------------------------------------------------
 other_methods({http_request, "PROPFIND", {abs_path, AbsPath}, _}, Headers, _Body, State) ->

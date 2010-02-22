@@ -2,7 +2,21 @@
 %%% @author Martin Logan <martinjlogan@Macintosh.local>
 %%% @copyright (C) 2009, Martin Logan
 %%% @doc
+%%% Possible configuration values for this application.
 %%%
+%%% Transitions define a move from one repo to another.
+%%% They are of the form
+%%% &lt;transition-id&gt; &lt;from-repo&gt;, &lt;to-repo&gt;, &lt;signed or unsigned&gt;
+%%% <pre>
+%%% {transitions,  
+%%%    [
+%%%     {pub, "/var/repo/writable", "/tmp/repo/pub", unsigned} 
+%%%    ]
+%%%   }
+%%%
+%%%   {inspection_frequency, 5000},
+%%%   {email, "martinjlogan@erlware.org"}
+%%% </pre>
 %%% @end
 %%% Created : 21 Apr 2009 by Martin Logan <martinjlogan@Macintosh.local>
 %%%-------------------------------------------------------------------
@@ -12,6 +26,8 @@
 
 %% Application callbacks
 -export([start/2, stop/1]).
+
+
 
 %%%===================================================================
 %%% Application callbacks
@@ -46,7 +62,7 @@ start(_StartType, _StartArgs) ->
 %% @private
 %% @doc
 %% This function is called whenever an application has stopped. It
-%% is intended to be the opposite of Module:start/2 and should do
+%% is intended to be the opposite of Module:start and should do
 %% any necessary cleaning up. The return value is ignored.
 %%
 %% @spec stop(State) -> void()
