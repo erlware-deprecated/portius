@@ -5,24 +5,29 @@ PROG_DIR=$(cd `dirname $0`; pwd)
 test -h $0 && PROG=$(readlink $0)
 export ROOTDIR=$(dirname $PROG_DIR)
 
-if [ $# -ne 2 ];then
+if [ "$1" = "use_config" ];then
+    echo "using config to start; no overrides"
+    INVOCATION_SUFFIX="-detached -prefix $ROOTDIR"
+elif [ $# -ne 2 ];then
 	echo "Usage: $0 <document-root> <port>"
 	exit 1
+else
+    echo "***************************************"
+    echo "Portius starting with document root $1" 
+    echo "Package should be published to $1/writable"
+    echo "Portius will move valid packages into $1/pub"
+    echo "and generate docs which will be placed in"
+    echo "$1/repo-doc."
+    echo "***************************************"
+
+    INVOCATION_SUFFIX="-detached -prefix $ROOTDIR -extra -override -web_interface document_root $1 -web_interface port $2"
 fi
 
-echo "***************************************"
-echo "Portius starting with document root $1" 
-echo "Package should be published to $1/writable"
-echo "Portius will move valid packages into $1/pub"
-echo "and generate docs which will be placed in"
-echo "$1/repo-doc."
-echo "***************************************"
 
 #### Fill in values for these variables ####
 REL_NAME=portius
-REL_VSN=0.9.0.0
+REL_VSN=0.9.0.1
 ERTS_VSN=5.7.4
-INVOCATION_SUFFIX="-prefix $ROOTDIR -extra -override -web_interface document_root $1 -web_interface port $2"
 ###########################################
 
 $ROOTDIR/bin/erlware_release_start_helper $REL_NAME $REL_VSN $ERTS_VSN sys.config $INVOCATION_SUFFIX
