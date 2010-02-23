@@ -39,13 +39,14 @@
 %% @end
 %%--------------------------------------------------------------------
 start_link() ->
+    {ok, IP} = gas:get_env(web_interface, ip, default_ip),
     {ok, Port} = gas:get_env(web_interface, port, 8080),
     {ok, DocumentRoot} = gas:get_env(web_interface, document_root, "/tmp/repo"),
     case Port of
 	Port when is_list(Port) ->
-	    gen_web_server:start_link(?MODULE, list_to_integer(Port), DocumentRoot);
+	    gen_web_server:start_link(?MODULE, IP, list_to_integer(Port), DocumentRoot);
 	Port ->
-	    gen_web_server:start_link(?MODULE, Port, DocumentRoot)
+	    gen_web_server:start_link(?MODULE, IP, Port, DocumentRoot)
     end.
 	    
 
@@ -66,15 +67,23 @@ init(DocumentRoot) ->
 %% @spec (RequestLine, Headers, State) -> Response
 %% @end
 %%--------------------------------------------------------------------
+get({http_request, M, {abs_path, "/"}, O}, Headers, State) ->
+    get({http_request, M, {abs_path, "/index.html"}, O}, Headers, State);
 get({http_request, _, {abs_path, AbsPath}, _}, Headers, State) ->
-    FilePath = filename:join(State#state.document_root, string:strip(AbsPath, left, $\/)),
-    case catch file:read_file(FilePath) of
-	{ok, TarFile} ->
-	    error_logger:info_msg("request is ~p headers ~p~n", [FilePath, Headers]),
-	    gen_web_server:http_reply(200, Headers, TarFile);
-	_Error ->
-	    gen_web_server:http_reply(404)
+    RawFilePath = filename:join(State#state.document_root, string:strip(AbsPath, left, $\/)),
+    case filelib:is_dir(RawFilePath) of
+	true ->
+	    IndexFile = filename:join(RawFilePath, "index.html"),
+	    case filelib:is_file(IndexFile) of
+		true  ->
+		    get_a_file(IndexFile, Headers);
+		false -> 
+		    get_a_directory(RawFilePath, AbsPath, Headers)
+	    end;
+	false ->
+	    get_a_file(RawFilePath, Headers)
     end.
+    
 	    
 head(_RequestLine, _Headers, _State) -> gen_web_server:http_reply(200).
 delete(_RequestLine, _Headers, _State) -> gen_web_server:http_reply(200).
@@ -137,4 +146,34 @@ write_data(Data, To) ->
             ok;
         {error, Reason} ->
             throw({file_open_error, Reason})
+    end.
+
+
+get_a_directory(DirPath, AbsPath, Headers) ->
+    {value, {'Host', Host}} = lists:keysearch('Host', 1, Headers),
+    DirList = create_directory_listing_html(Host, DirPath, AbsPath),
+    gen_web_server:http_reply(200, Headers, DirList).
+
+create_directory_listing_html(Host, DirPath, AbsPath) ->
+    {ok, Dirs} = file:list_dir(DirPath),
+    Links = 
+	lists:map(fun(Dir) ->
+			  case filelib:is_dir(filename:join(DirPath, Dir)) of
+			      true ->
+				  lists:concat(["<a href=\"http://", Host, AbsPath, "/", Dir, "\/\">", Dir, "</a>"]);
+			      false ->
+				  lists:concat(["<a href=\"http://", Host, AbsPath, "/", Dir, "\">", Dir, "</a>"])
+			  end
+		  end, Dirs),
+    string:join(Links, "<br/>").
+    
+get_a_file(FilePath, Headers) ->
+    case catch file:read_file(FilePath) of
+	{ok, File} ->
+	    error_logger:info_msg("fetching package at ~p~n", [FilePath]),
+	    Reply = gen_web_server:http_reply(200, Headers, File),
+	    error_logger:info_msg("sending back ~p~n", [Reply]),
+	    Reply;
+	_Error ->
+	    gen_web_server:http_reply(404)
     end.

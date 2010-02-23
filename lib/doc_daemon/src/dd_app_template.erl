@@ -114,8 +114,8 @@ get_part_template(ErlAppDocRootDirPath) ->
 	    {ok, IOD} = file:open(PartFilePath, [write]),
 	    Page = join(
 		     ["<li>", 
-		      " $appspec.name$ <a href=\"$appspec.path$\">$appspec.vsn$</a> (for: $appspec.erlang_vsn$) ",
-		      " <br><small>Older Versions: $appspec.back_vsns$</small><br/><br/>",
+		      " $appspec.name$ <a href=\"$appspec.path$\/\">$appspec.vsn$</a> (for: $appspec.erlang_vsn$) ",
+		      " <br/><small>Older Vsns: $appspec.back_vsns$</small><br/><br/>",
 		      "</li>"],
 		     "\n"),
 	    ok = io:fwrite(IOD, "~s", [Page]),

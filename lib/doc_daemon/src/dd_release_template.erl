@@ -178,7 +178,7 @@ get_part_template(RelDocRootDirPath) ->
 	    {ok, IOD} = file:open(PartFilePath, [write]),
 	    Page = join(
 		     ["<li>", 
-		      " $releasespec.name$ <a href=\"$releasespec.path$\">$releasespec.vsn$</a><br/>",
+		      " $releasespec.name$ <a href=\"$releasespec.path$\/\">$releasespec.vsn$</a><br/>",
 		      " <small>Older Versions: $releasespec.back_vsns$</small><br/><br/>",
 		      "</li>"],
 		     "\n"),
@@ -206,7 +206,7 @@ massage_release_specs([{RelName, Attributes}|T], DocRoot) ->
     SpecList = [
 		{name, RelName}, 
 		{vsn, HighRelVsn}, 
-		{path, lists:concat([www_renderable_path(HighRelPath, DocRoot), "/control"])}
+		{path, lists:concat([www_renderable_path(HighRelPath, DocRoot), "/index.html"])}
 	       ],
 
     Links = 
