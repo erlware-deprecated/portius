@@ -170,7 +170,7 @@ get_a_file(FilePath, Headers) ->
     error_logger:info_msg("fetching package at ~p ~p~n", [FilePath, Headers]),
     case catch file:read_file(FilePath) of
 	{ok, File} ->
-	    gen_web_server:http_reply(200, Headers, File),
+	    gen_web_server:http_reply(200, Headers, File);
 	_Error ->
 	    gen_web_server:http_reply(404)
     end.
