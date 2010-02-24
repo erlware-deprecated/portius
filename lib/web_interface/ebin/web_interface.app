@@ -2,7 +2,7 @@
 %% application.
 {application, web_interface, 
   [{description, "An application that uses the gen_web_server to serve up repo contents to faxien"},
-   {vsn, "0.2.0.4"},
+   {vsn, "0.2.0.5"},
    {modules, [wi_app,
               wi_sup,
               wi_server]},

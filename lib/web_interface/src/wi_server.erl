@@ -117,7 +117,6 @@ other_methods({http_request, "PROPFIND", {abs_path, AbsPath}, _}, Headers, _Body
 	error -> 
 	    gen_web_server:http_reply(404);
 	Resp -> 
-	    error_logger:info_msg("request is ~p ~p~n", [AbsPath, Headers]),
 	    gen_web_server:http_reply(207, Headers, Resp)
     end;
 other_methods({http_request, "MKCOL", {abs_path, AbsPath}, _}, _Headers, _Body, State) ->
@@ -140,7 +139,7 @@ other_methods(RequestLine, Headers, Body, _State) ->
 write_data(Data, To) ->
     case file:open(To, [write, raw]) of
         {ok, Fd} ->
-	    error_logger:info_msg("ewr_fetch:write_data writing to ~p~n", [To]),
+	    error_logger:info_msg("write_data writing to ~p~n", [To]),
             ok = file:write(Fd, Data),
             file:close(Fd),
             ok;
@@ -168,12 +167,10 @@ create_directory_listing_html(Host, DirPath, AbsPath) ->
     string:join(Links, "<br/>").
     
 get_a_file(FilePath, Headers) ->
+    error_logger:info_msg("fetching package at ~p ~p~n", [FilePath, Headers]),
     case catch file:read_file(FilePath) of
 	{ok, File} ->
-	    error_logger:info_msg("fetching package at ~p~n", [FilePath]),
-	    Reply = gen_web_server:http_reply(200, Headers, File),
-	    error_logger:info_msg("sending back ~p~n", [Reply]),
-	    Reply;
+	    gen_web_server:http_reply(200, Headers, File),
 	_Error ->
 	    gen_web_server:http_reply(404)
     end.
