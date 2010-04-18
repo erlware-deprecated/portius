@@ -67,9 +67,10 @@ init(DocumentRoot) ->
 %% @spec (RequestLine, Headers, State) -> Response
 %% @end
 %%--------------------------------------------------------------------
-get({http_request, M, {abs_path, "/"}, O}, Headers, State) ->
-    get({http_request, M, {abs_path, "/index.html"}, O}, Headers, State);
-get({http_request, _, {abs_path, AbsPath}, _}, Headers, State) ->
+get({http_request, M, {abs_path, <<"/">>}, O}, Headers, State) ->
+    get({http_request, M, {abs_path, <<"/index.html">>}, O}, Headers, State);
+get({http_request, _, {abs_path, AbsPathBin}, _}, Headers, State) ->
+    AbsPath = binary_to_list(AbsPathBin),
     RawFilePath = filename:join(State#state.document_root, string:strip(AbsPath, left, $\/)),
     case filelib:is_dir(RawFilePath) of
 	true ->
@@ -93,12 +94,14 @@ delete(_RequestLine, _Headers, _State) -> gen_web_server:http_reply(200).
 %% @spec (RequestLine, Headers, Body, State) -> Response
 %% @end
 %%--------------------------------------------------------------------
-put({http_request, _, {abs_path, AbsPath}, _}, _Headers, Body, State) ->
+put({http_request, _, {abs_path, AbsPathBin}, _}, _Headers, Body, State) ->
+    AbsPath = binary_to_list(AbsPathBin),
     To = filename:join(State#state.document_root, string:strip(AbsPath, left, $\/)),
     case catch write_data(Body, To) of
 	ok ->
 	    gen_web_server:http_reply(201);
-	_ ->
+	Error ->
+	    error_logger:info_msg("failed to write data to ~p with error ~p~n", [To, Error]),
 	    gen_web_server:http_reply(405)
     end.
 trace(_RequestLine, _Headers, _Body, _State) -> gen_web_server:http_reply(200).
@@ -111,7 +114,8 @@ connect(_RequestLine, _Headers, _Body, _State) -> gen_web_server:http_reply(200)
 %% @spec (RequestLine, Headers, Body, State) -> Response
 %% @end
 %%--------------------------------------------------------------------
-other_methods({http_request, "PROPFIND", {abs_path, AbsPath}, _}, Headers, _Body, State) ->
+other_methods({http_request, <<"PROPFIND">>, {abs_path, AbsPathBin}, _}, Headers, _Body, State) ->
+    AbsPath = binary_to_list(AbsPathBin),
     {value, {'Host', Host}} = lists:keysearch('Host', 1, Headers),
     case gws_web_dav_util:propfind(State#state.document_root, AbsPath, Host, 1) of
 	error -> 
@@ -119,7 +123,8 @@ other_methods({http_request, "PROPFIND", {abs_path, AbsPath}, _}, Headers, _Body
 	Resp -> 
 	    gen_web_server:http_reply(207, Headers, Resp)
     end;
-other_methods({http_request, "MKCOL", {abs_path, AbsPath}, _}, _Headers, _Body, State) ->
+other_methods({http_request, <<"MKCOL">>, {abs_path, AbsPathBin}, _}, _Headers, _Body, State) ->
+    AbsPath = binary_to_list(AbsPathBin),
     gws_web_dav_util:mkcol(State#state.document_root, AbsPath),
     gen_web_server:http_reply(201);
 other_methods(RequestLine, Headers, Body, _State) ->
@@ -150,7 +155,7 @@ write_data(Data, To) ->
 
 get_a_directory(DirPath, AbsPath, Headers) ->
     {value, {'Host', Host}} = lists:keysearch('Host', 1, Headers),
-    DirList = create_directory_listing_html(Host, DirPath, AbsPath),
+    DirList = create_directory_listing_html(binary_to_list(Host), DirPath, AbsPath),
     gen_web_server:http_reply(200, Headers, DirList).
 
 create_directory_listing_html(Host, DirPath, AbsPath) ->
