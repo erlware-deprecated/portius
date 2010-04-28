@@ -70,8 +70,14 @@ init([TransitionSpec]) ->
     {ok, Timeout} = gas:get_env(repo_daemon, inspection_frequency, 30000),
     {ok, Email}   = gas:get_env(repo_daemon, email, undefined),
 
-    ToRepoDirPath = TransitionSpec#transition_spec.to_repo,
+    #transition_spec{
+		 from_repo  = FromRepoDirPath, 
+		 to_repo    = ToRepoDirPath
+		} = TransitionSpec,
+
     ok = ewl_file:mkdir_p(ToRepoDirPath),
+    ok = ewl_file:mkdir_p(FromRepoDirPath),
+
     ToTree = rd_file_tree:create_empty_tree(ToRepoDirPath),
     ?INFO_MSG("initialized to move packages to ~p~n", [ToRepoDirPath]),
 

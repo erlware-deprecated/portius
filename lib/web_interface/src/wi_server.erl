@@ -23,7 +23,6 @@
 	 post/4,
 	 put/4,
 	 trace/4,
-	 connect/4,
 	 other_methods/4
 	]).
 
@@ -40,7 +39,7 @@
 %%--------------------------------------------------------------------
 start_link() ->
     {ok, IP} = gas:get_env(web_interface, ip, default_ip),
-    {ok, Port} = gas:get_env(web_interface, port, 8080),
+    {ok, Port} = gas:get_env(web_interface, port, 1055),
     {ok, DocumentRoot} = gas:get_env(web_interface, document_root, "/tmp/repo"),
     case Port of
 	Port when is_list(Port) ->
@@ -67,8 +66,6 @@ init(DocumentRoot) ->
 %% @spec (RequestLine, Headers, State) -> Response
 %% @end
 %%--------------------------------------------------------------------
-get({http_request, M, {abs_path, <<"/">>}, O}, Headers, State) ->
-    get({http_request, M, {abs_path, <<"/index.html">>}, O}, Headers, State);
 get({http_request, _, {abs_path, AbsPathBin}, _}, Headers, State) ->
     AbsPath = binary_to_list(AbsPathBin),
     RawFilePath = filename:join(State#state.document_root, string:strip(AbsPath, left, $\/)),
@@ -86,8 +83,8 @@ get({http_request, _, {abs_path, AbsPathBin}, _}, Headers, State) ->
     end.
     
 	    
-head(_RequestLine, _Headers, _State) -> gen_web_server:http_reply(200).
-delete(_RequestLine, _Headers, _State) -> gen_web_server:http_reply(200).
+head(_RequestLine, _Headers, _State) -> gen_web_server:http_reply(501).
+delete(_RequestLine, _Headers, _State) -> gen_web_server:http_reply(501).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -104,10 +101,9 @@ put({http_request, _, {abs_path, AbsPathBin}, _}, _Headers, Body, State) ->
 	    error_logger:info_msg("failed to write data to ~p with error ~p~n", [To, Error]),
 	    gen_web_server:http_reply(405)
     end.
-trace(_RequestLine, _Headers, _Body, _State) -> gen_web_server:http_reply(200).
-post(_RequestLine, _Headers, _Body, _State) -> gen_web_server:http_reply(200).
-options(_RequestLine, _Headers, _Body, _State) -> gen_web_server:http_reply(200).
-connect(_RequestLine, _Headers, _Body, _State) -> gen_web_server:http_reply(200).
+trace(_RequestLine, _Headers, _Body, _State) -> gen_web_server:http_reply(501).
+post(_RequestLine, _Headers, _Body, _State) -> gen_web_server:http_reply(501).
+options(_RequestLine, _Headers, _Body, _State) -> gen_web_server:http_reply(501).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -117,7 +113,7 @@ connect(_RequestLine, _Headers, _Body, _State) -> gen_web_server:http_reply(200)
 other_methods({http_request, <<"PROPFIND">>, {abs_path, AbsPathBin}, _}, Headers, _Body, State) ->
     AbsPath = binary_to_list(AbsPathBin),
     {value, {'Host', Host}} = lists:keysearch('Host', 1, Headers),
-    case gws_web_dav_util:propfind(State#state.document_root, AbsPath, Host, 1) of
+    case gws_web_dav_util:propfind(State#state.document_root, AbsPath, binary_to_list(Host), 1) of
 	error -> 
 	    gen_web_server:http_reply(404);
 	Resp -> 
