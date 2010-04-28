@@ -124,8 +124,8 @@ other_methods({http_request, <<"MKCOL">>, {abs_path, AbsPathBin}, _}, _Headers, 
     gws_web_dav_util:mkcol(State#state.document_root, AbsPath),
     gen_web_server:http_reply(201);
 other_methods(RequestLine, Headers, Body, _State) ->
-    error_logger:info_msg("request is ~p ~p ~p~n", [RequestLine, Headers, Body]),
-    gen_web_server:http_reply(200).
+    error_logger:error_msg("the unimplemented request is ~p ~p ~p~n", [RequestLine, Headers, Body]),
+    gen_web_server:http_reply(501).
 
 %%%===================================================================
 %%% Internal functions
@@ -140,7 +140,6 @@ other_methods(RequestLine, Headers, Body, _State) ->
 write_data(Data, To) ->
     case file:open(To, [write, raw]) of
         {ok, Fd} ->
-	    error_logger:info_msg("write_data writing to ~p~n", [To]),
             ok = file:write(Fd, Data),
             file:close(Fd),
             ok;
@@ -168,9 +167,9 @@ create_directory_listing_html(Host, DirPath, AbsPath) ->
     string:join(Links, "<br/>").
     
 get_a_file(FilePath, Headers) ->
-    error_logger:info_msg("fetching package at ~p ~p~n", [FilePath, Headers]),
     case catch file:read_file(FilePath) of
 	{ok, File} ->
+	    error_logger:info_msg("fetching package at ~p ~p~n", [FilePath, Headers]),
 	    gen_web_server:http_reply(200, Headers, File);
 	_Error ->
 	    gen_web_server:http_reply(404)

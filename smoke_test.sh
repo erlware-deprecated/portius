@@ -1,6 +1,6 @@
 #!/bin/sh
 
-sinan dist; faxien ir
+#sinan dist; faxien ir
 pkill beam
 rm -rf /tmp/repo
 portius /tmp/repo 1156

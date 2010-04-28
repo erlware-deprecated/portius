@@ -54,6 +54,7 @@ generate_release_doc(RelDocRootDirPath, RelDocDirPath, ErtsVsn) ->
 	NewPage = sgte:render_str(IndexTemplate, Attrs),
 	true = is_list(NewPage),
 	DocIndexFilePath = ewl_file:join_paths(RelDocDirPath, "index.html"),
+	?INFO_MSG("Attempting to render release page to ~s~n", [DocIndexFilePath]),
 	{ok, IOD} = file:open(DocIndexFilePath, [write]),
 	ok = io:fwrite(IOD, "~s", [NewPage]),
 	?INFO_MSG("Page Rendered and written out to ~s~n", [DocIndexFilePath])
@@ -178,7 +179,7 @@ get_part_template(RelDocRootDirPath) ->
 	    {ok, IOD} = file:open(PartFilePath, [write]),
 	    Page = join(
 		     ["<li>", 
-		      " $releasespec.name$ <a href=\"$releasespec.path$\/\">$releasespec.vsn$</a><br/>",
+		      " $releasespec.name$ <a href=\"$releasespec.path$\">$releasespec.vsn$</a><br/>",
 		      " <small>Older Versions: $releasespec.back_vsns$</small><br/><br/>",
 		      "</li>"],
 		     "\n"),
@@ -206,14 +207,14 @@ massage_release_specs([{RelName, Attributes}|T], DocRoot) ->
     SpecList = [
 		{name, RelName}, 
 		{vsn, HighRelVsn}, 
-		{path, lists:concat([www_renderable_path(HighRelPath, DocRoot), "/index.html"])}
+		{path, lists:concat([www_renderable_path(HighRelPath, DocRoot), "/control"])}
 	       ],
 
     Links = 
 	lists:flatten(
 	  lists:sublist(
 	    lists:map(fun({RelVsn, RelPath}) -> 
-			      lists:flatten([" <a href=\"", www_renderable_path(RelPath, DocRoot),"/index.html\">", RelVsn, "</a> |"]) 
+			      lists:flatten([" <a href=\"", www_renderable_path(RelPath, DocRoot),"/control\">", RelVsn, "</a> |"]) 
 		      end, 
 		      AggregatedAttributes), ?VERSION_HISTORY_DEPTH)),
 
