@@ -27,6 +27,7 @@
 	]).
 
 -record(state, {document_root}).
+-define(STD_HEADERS, [{'Connection', <<"close">>}]).
 
 %%%===================================================================
 %%% API
@@ -83,8 +84,8 @@ get({http_request, _, {abs_path, AbsPathBin}, _}, Headers, State) ->
     end.
     
 	    
-head(_RequestLine, _Headers, _State) -> gen_web_server:http_reply(501).
-delete(_RequestLine, _Headers, _State) -> gen_web_server:http_reply(501).
+head(_RequestLine, _Headers, _State) -> gen_web_server:http_reply(501, ?STD_HEADERS, <<>>).
+delete(_RequestLine, _Headers, _State) -> gen_web_server:http_reply(501, ?STD_HEADERS, <<>>).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -96,14 +97,14 @@ put({http_request, _, {abs_path, AbsPathBin}, _}, _Headers, Body, State) ->
     To = filename:join(State#state.document_root, string:strip(AbsPath, left, $\/)),
     case catch write_data(Body, To) of
 	ok ->
-	    gen_web_server:http_reply(201);
+	    gen_web_server:http_reply(201, ?STD_HEADERS, <<>>);
 	Error ->
 	    error_logger:info_msg("failed to write data to ~p with error ~p~n", [To, Error]),
-	    gen_web_server:http_reply(405)
+	    gen_web_server:http_reply(405, ?STD_HEADERS, <<>>)
     end.
-trace(_RequestLine, _Headers, _Body, _State) -> gen_web_server:http_reply(501).
-post(_RequestLine, _Headers, _Body, _State) -> gen_web_server:http_reply(501).
-options(_RequestLine, _Headers, _Body, _State) -> gen_web_server:http_reply(501).
+trace(_RequestLine, _Headers, _Body, _State) -> gen_web_server:http_reply(501, ?STD_HEADERS, <<>>).
+post(_RequestLine, _Headers, _Body, _State) -> gen_web_server:http_reply(501, ?STD_HEADERS, <<>>).
+options(_RequestLine, _Headers, _Body, _State) -> gen_web_server:http_reply(501, ?STD_HEADERS, <<>>).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -115,17 +116,17 @@ other_methods({http_request, <<"PROPFIND">>, {abs_path, AbsPathBin}, _}, Headers
     {value, {'Host', Host}} = lists:keysearch('Host', 1, Headers),
     case gws_web_dav_util:propfind(State#state.document_root, AbsPath, binary_to_list(Host), 1) of
 	error -> 
-	    gen_web_server:http_reply(404);
+	    gen_web_server:http_reply(404, ?STD_HEADERS, <<>>);
 	Resp -> 
-	    gen_web_server:http_reply(207, Headers, Resp)
+	    gen_web_server:http_reply(207, ?STD_HEADERS, Resp)
     end;
 other_methods({http_request, <<"MKCOL">>, {abs_path, AbsPathBin}, _}, _Headers, _Body, State) ->
     AbsPath = binary_to_list(AbsPathBin),
     gws_web_dav_util:mkcol(State#state.document_root, AbsPath),
-    gen_web_server:http_reply(201);
+    gen_web_server:http_reply(201, ?STD_HEADERS, <<>>);
 other_methods(RequestLine, Headers, Body, _State) ->
     error_logger:error_msg("the unimplemented request is ~p ~p ~p~n", [RequestLine, Headers, Body]),
-    gen_web_server:http_reply(501).
+    gen_web_server:http_reply(501, ?STD_HEADERS, <<>>).
 
 %%%===================================================================
 %%% Internal functions
@@ -151,7 +152,7 @@ write_data(Data, To) ->
 get_a_directory(DirPath, AbsPath, Headers) ->
     {value, {'Host', Host}} = lists:keysearch('Host', 1, Headers),
     DirList = create_directory_listing_html(binary_to_list(Host), DirPath, AbsPath),
-    gen_web_server:http_reply(200, Headers, DirList).
+    gen_web_server:http_reply(200, ?STD_HEADERS, DirList).
 
 create_directory_listing_html(Host, DirPath, AbsPath) ->
     {ok, Dirs} = file:list_dir(DirPath),
@@ -170,7 +171,7 @@ get_a_file(FilePath, Headers) ->
     case catch file:read_file(FilePath) of
 	{ok, File} ->
 	    error_logger:info_msg("fetching package at ~p ~p~n", [FilePath, Headers]),
-	    gen_web_server:http_reply(200, Headers, File);
+	    gen_web_server:http_reply(200, ?STD_HEADERS, File);
 	_Error ->
-	    gen_web_server:http_reply(404)
+	    gen_web_server:http_reply(404, ?STD_HEADERS, <<>>)
     end.
