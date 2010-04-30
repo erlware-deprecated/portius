@@ -27,7 +27,7 @@
 	]).
 
 -record(state, {document_root}).
--define(STD_HEADERS, [{'Connection', <<"close">>}]).
+-define(STD_HEADERS, [{<<"Connection">>, <<"close">>}]).
 
 %%%===================================================================
 %%% API
