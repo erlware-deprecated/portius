@@ -26,7 +26,7 @@ fi
 
 #### Fill in values for these variables ####
 REL_NAME=portius
-REL_VSN=0.9.0.19
+REL_VSN=0.9.0.20
 ERTS_VSN=5.7.5
 ###########################################
 
