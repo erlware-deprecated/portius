@@ -68,6 +68,8 @@ init(DocumentRoot) ->
 %% @spec (RequestLine, Headers, State) -> Response
 %% @end
 %%--------------------------------------------------------------------
+get({http_request, A, {absoluteURI, _Type, _Host, _Port, AbsPathBin}, B}, Headers, State) ->
+    get({http_request, A, {abs_path, AbsPathBin}, B}, Headers, State);
 get({http_request, _, {abs_path, AbsPathBin}, _}, Headers, State) ->
     AbsPath = binary_to_list(AbsPathBin),
     RawFilePath = filename:join(State#state.document_root, string:strip(AbsPath, left, $\/)),
